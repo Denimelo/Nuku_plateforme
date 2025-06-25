@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Styles de base pour les liens */
+a {
+  @apply transition-colors;
+}
+img {
+  @apply max-w-full h-auto block; /* Reset des styles problématiques */
+}
