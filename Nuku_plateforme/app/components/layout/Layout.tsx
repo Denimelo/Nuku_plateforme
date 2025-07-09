@@ -35,6 +35,9 @@ type LayoutProps = {
 const menuConfig = {
   admin: [
     { icon: Home, label: "Tableau de bord", href: "/dashboard" },
+    { icon: Users, label: "Utilisateurs", href: "/users" },
+    { icon: Upload, label: "Contenu", href: "/admin/content" },
+    { icon: MessageSquare, label: "Messages", href: "/admin/messages" },
     { icon: Users, label: "Validation", href: "/admin/validation" },
     { icon: BookOpen, label: "Programmes", href: "/admin/programs" },
     { icon: BarChart3, label: "Rapports", href: "/admin/reports" },

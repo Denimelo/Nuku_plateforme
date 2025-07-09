@@ -11,6 +11,9 @@ import {
   CheckCircle,
   ArrowLeft,
   Loader2,
+  Clock,
+  Shield,
+  Key,
 } from "lucide-react";
 
 // Types pour une meilleure gestion des erreurs
@@ -23,6 +26,7 @@ interface ApiError {
 interface LoginResponse {
   access_token: string;
   token_type?: string;
+  is_temporary_password?: boolean;
   user?: {
     id: string;
     email: string;
@@ -30,11 +34,26 @@ interface LoginResponse {
   };
 }
 
+interface LoginAttempt {
+  email: string;
+  attempts: number;
+  firstAttempt: number;
+  lastAttempt: number;
+  blockedUntil?: number;
+}
+
 // Configuration API centralisée
 const API_CONFIG = {
   baseUrl: process.env.API_BASE_URL || "http://127.0.0.1:8000",
   timeout: 10000,
 };
+
+// Constantes pour la limitation des tentatives
+const MAX_ATTEMPTS_BEFORE_SHORT_BLOCK = 3;
+const MAX_ATTEMPTS_BEFORE_LONG_BLOCK = 4;
+const SHORT_BLOCK_DURATION = 60 * 3000; // 3 minute
+const LONG_BLOCK_DURATION = 3 * 60 * 60 * 1000; // 3 heures
+const ATTEMPT_RESET_TIME = 24 * 60 * 60 * 1000; // 24 heures
 
 // Fonction utilitaire pour les appels API
 async function apiRequest<T>(
@@ -79,6 +98,113 @@ async function apiRequest<T>(
   }
 }
 
+// Fonctions pour gérer les tentatives de connexion
+function getLoginAttempts(): Record<string, LoginAttempt> {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const stored = localStorage.getItem("loginAttempts");
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+}
+
+function setLoginAttempts(attempts: Record<string, LoginAttempt>): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    localStorage.setItem("loginAttempts", JSON.stringify(attempts));
+  } catch {
+    // Silencieux en cas d'erreur de stockage
+  }
+}
+
+function isUserBlocked(email: string): {
+  blocked: boolean;
+  blockedUntil?: number;
+  attempts: number;
+} {
+  const attempts = getLoginAttempts();
+  const userAttempt = attempts[email];
+
+  if (!userAttempt) {
+    return { blocked: false, attempts: 0 };
+  }
+
+  const now = Date.now();
+
+  // Réinitialiser les tentatives si plus de 24h
+  if (now - userAttempt.firstAttempt > ATTEMPT_RESET_TIME) {
+    delete attempts[email];
+    setLoginAttempts(attempts);
+    return { blocked: false, attempts: 0 };
+  }
+
+  // Vérifier si l'utilisateur est encore bloqué
+  if (userAttempt.blockedUntil && now < userAttempt.blockedUntil) {
+    return {
+      blocked: true,
+      blockedUntil: userAttempt.blockedUntil,
+      attempts: userAttempt.attempts,
+    };
+  }
+
+  // Si le temps de blocage est écoulé, réinitialiser blockedUntil
+  if (userAttempt.blockedUntil && now >= userAttempt.blockedUntil) {
+    userAttempt.blockedUntil = undefined;
+    setLoginAttempts(attempts);
+  }
+
+  return { blocked: false, attempts: userAttempt.attempts };
+}
+
+function recordFailedAttempt(email: string): {
+  newAttempts: number;
+  blockedUntil?: number;
+} {
+  const attempts = getLoginAttempts();
+  const now = Date.now();
+
+  if (!attempts[email]) {
+    attempts[email] = {
+      email,
+      attempts: 0,
+      firstAttempt: now,
+      lastAttempt: now,
+    };
+  }
+
+  attempts[email].attempts += 1;
+  attempts[email].lastAttempt = now;
+
+  // Déterminer le blocage
+  let blockedUntil: number | undefined;
+
+  if (attempts[email].attempts === MAX_ATTEMPTS_BEFORE_SHORT_BLOCK) {
+    blockedUntil = now + SHORT_BLOCK_DURATION;
+  } else if (attempts[email].attempts >= MAX_ATTEMPTS_BEFORE_LONG_BLOCK) {
+    blockedUntil = now + LONG_BLOCK_DURATION;
+  }
+
+  if (blockedUntil) {
+    attempts[email].blockedUntil = blockedUntil;
+  }
+
+  setLoginAttempts(attempts);
+
+  return {
+    newAttempts: attempts[email].attempts,
+    blockedUntil,
+  };
+}
+
+function resetLoginAttempts(email: string): void {
+  const attempts = getLoginAttempts();
+  delete attempts[email];
+  setLoginAttempts(attempts);
+}
+
 export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
   const email = formData.get("email");
@@ -109,10 +235,32 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   });
 
   if (error || !data) {
-    return json({ error: error || "Erreur de connexion" }, { status: 401 });
+    return json(
+      {
+        error: error || "Erreur de connexion",
+        failedAttempt: true,
+        email: email,
+      },
+      { status: 401 }
+    );
   }
 
-  // Redirection avec cookie sécurisé
+  // Vérifier si le mot de passe est temporaire
+  if (data.is_temporary_password) {
+    // Redirection vers la page de changement de mot de passe avec le token
+    return redirect("/change_password", {
+      headers: {
+        "Set-Cookie": await authTokenCookie.serialize(data.access_token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          maxAge: 60 * 60 * 24 * 7, // 7 jours
+        }),
+      },
+    });
+  }
+
+  // Redirection normale vers le dashboard
   return redirect("/dashboard", {
     headers: {
       "Set-Cookie": await authTokenCookie.serialize(data.access_token, {
@@ -132,8 +280,98 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [success, setSuccess] = useState("");
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [blockStatus, setBlockStatus] = useState<{
+    blocked: boolean;
+    blockedUntil?: number;
+    attempts: number;
+  }>({ blocked: false, attempts: 0 });
+  const [remainingTime, setRemainingTime] = useState<number>(0);
 
   const isSubmitting = navigation.state === "submitting";
+
+  // Vérifier le statut de blocage au chargement et après une tentative échouée
+  useEffect(() => {
+    const checkBlockStatus = (email?: string) => {
+      if (!email) return;
+
+      const status = isUserBlocked(email);
+      setBlockStatus(status);
+
+      if (status.blocked && status.blockedUntil) {
+        const remaining = status.blockedUntil - Date.now();
+        setRemainingTime(Math.max(0, remaining));
+      }
+    };
+
+    // Vérifier au chargement si on a un email en cours
+    const currentEmail = document.querySelector<HTMLInputElement>(
+      'input[name="email"]'
+    )?.value;
+    if (currentEmail) {
+      checkBlockStatus(currentEmail);
+    }
+
+    // Vérifier après une tentative échouée
+    if (actionData?.failedAttempt && actionData?.email) {
+      const { newAttempts, blockedUntil } = recordFailedAttempt(
+        actionData.email
+      );
+
+      setBlockStatus({
+        blocked: !!blockedUntil,
+        blockedUntil,
+        attempts: newAttempts,
+      });
+
+      if (blockedUntil) {
+        const remaining = blockedUntil - Date.now();
+        setRemainingTime(Math.max(0, remaining));
+      }
+    }
+  }, [actionData]);
+
+  // Vérifier le statut de blocage quand l'email change
+  const handleEmailChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const email = event.target.value;
+    clearFieldError("email");
+
+    if (email) {
+      const status = isUserBlocked(email);
+      setBlockStatus(status);
+
+      if (status.blocked && status.blockedUntil) {
+        const remaining = status.blockedUntil - Date.now();
+        setRemainingTime(Math.max(0, remaining));
+      }
+    } else {
+      setBlockStatus({ blocked: false, attempts: 0 });
+      setRemainingTime(0);
+    }
+  };
+
+  // Compte à rebours pour le déblocage
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    if (blockStatus.blocked && remainingTime > 0) {
+      interval = setInterval(() => {
+        setRemainingTime((prev) => {
+          const newTime = prev - 1000;
+          if (newTime <= 0) {
+            setBlockStatus((prev) => ({ ...prev, blocked: false }));
+            return 0;
+          }
+          return newTime;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [blockStatus.blocked, remainingTime]);
 
   // Validation côté client
   const validateForm = (email: string, password: string) => {
@@ -160,12 +398,25 @@ export default function LoginPage() {
     const email = formData.get("email") as string;
     const password = formData.get("password") as string;
 
+    // Vérifier si l'utilisateur est bloqué
+    const status = isUserBlocked(email);
+    if (status.blocked) {
+      event.preventDefault();
+      setFormErrors({ general: "Compte temporairement bloqué" });
+      return;
+    }
+
     const errors = validateForm(email, password);
     setFormErrors(errors);
 
     if (Object.keys(errors).length > 0) {
       event.preventDefault();
       return;
+    }
+
+    // Réinitialiser les tentatives en cas de succès
+    if (!actionData?.error) {
+      resetLoginAttempts(email);
     }
   };
 
@@ -181,6 +432,34 @@ export default function LoginPage() {
     if (formErrors[fieldName]) {
       setFormErrors((prev) => ({ ...prev, [fieldName]: "" }));
     }
+  };
+
+  // Formater le temps restant
+  const formatRemainingTime = (time: number) => {
+    if (time < 60000) {
+      // Moins d'une minute
+      const seconds = Math.ceil(time / 1000);
+      return `${seconds} seconde${seconds > 1 ? "s" : ""}`;
+    } else if (time < 3600000) {
+      // Moins d'une heure
+      const minutes = Math.ceil(time / 60000);
+      return `${minutes} minute${minutes > 1 ? "s" : ""}`;
+    } else {
+      // Plus d'une heure
+      const hours = Math.ceil(time / 3600000);
+      return `${hours} heure${hours > 1 ? "s" : ""}`;
+    }
+  };
+
+  // Message d'erreur personnalisé selon le nombre de tentatives
+  const getErrorMessage = () => {
+    if (actionData?.error) {
+      if (blockStatus.attempts >= MAX_ATTEMPTS_BEFORE_LONG_BLOCK) {
+        return "Il semble que vous ne soyez pas la bonne personne ou bien si vous avez oublié votre mot de passe, veuillez le réinitialiser s'il vous plaît.";
+      }
+      return actionData.error;
+    }
+    return null;
   };
 
   return (
@@ -210,7 +489,7 @@ export default function LoginPage() {
           {/* En-tête de la page */}
           <div className="text-center mb-8">
             <div className="w-20 h-20 bg-gradient-to-br from-[#0B2749] to-blue-600 rounded-full mx-auto mb-6 flex items-center justify-center">
-              <Lock className="h-10 w-10 text-white" />
+              <Lock className="h-10 w-10 text-[#0B2749]" />
             </div>
             <h1
               className="text-3xl font-bold text-[#0B2749] mb-2"
@@ -227,6 +506,58 @@ export default function LoginPage() {
           {/* Formulaire de connexion */}
           <Form method="post" onSubmit={handleSubmit}>
             <div className="bg-white rounded-2xl shadow-xl p-8 space-y-6 border border-gray-100">
+              {/* Message de blocage */}
+              {blockStatus.blocked && (
+                <div className="flex items-start space-x-3 text-red-600 bg-red-50 p-4 rounded-lg border border-red-200">
+                  <Shield className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium">
+                      Compte temporairement bloqué
+                    </p>
+                    <p className="text-sm mt-1">
+                      Trop de tentatives de connexion échouées. Réessayez dans{" "}
+                      {formatRemainingTime(remainingTime)}.
+                    </p>
+                    {blockStatus.attempts >= MAX_ATTEMPTS_BEFORE_LONG_BLOCK && (
+                      <p className="text-sm mt-2">
+                        <a
+                          href="/reinitialize_password"
+                          className="text-blue-600 hover:text-blue-800 underline"
+                        >
+                          Réinitialiser votre mot de passe
+                        </a>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Indicateur de tentatives */}
+              {blockStatus.attempts > 0 && !blockStatus.blocked && (
+                <div className="flex items-center space-x-2 text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-200">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-sm">
+                    {blockStatus.attempts}/{MAX_ATTEMPTS_BEFORE_SHORT_BLOCK}{" "}
+                    tentatives échouées
+                    {blockStatus.attempts ===
+                      MAX_ATTEMPTS_BEFORE_SHORT_BLOCK - 1 &&
+                      " - Prochaine tentative bloquera temporairement le compte"}
+                  </span>
+                </div>
+              )}
+
+              {/* Message d'information pour mot de passe temporaire */}
+              {isSubmitting && (
+                <div className="flex items-center space-x-2 text-blue-600 bg-blue-50 p-3 rounded-lg border border-blue-200">
+                  <Key className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-sm">
+                    Vérification en cours... Si vous utilisez un mot de passe
+                    temporaire, vous serez redirigé vers la page de changement
+                    de mot de passe.
+                  </span>
+                </div>
+              )}
+
               {/* Champ email */}
               <div>
                 <label
@@ -245,11 +576,14 @@ export default function LoginPage() {
                     type="email"
                     autoComplete="email"
                     required
-                    onChange={() => clearFieldError("email")}
+                    onChange={handleEmailChange}
+                    disabled={blockStatus.blocked}
                     className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-[#0B2749] focus:border-transparent transition-all duration-200 placeholder-gray-500 ${
                       formErrors.email || actionData?.error
                         ? "border-red-300 bg-red-50"
                         : "border-gray-300 hover:border-gray-400"
+                    } ${
+                      blockStatus.blocked ? "opacity-50 cursor-not-allowed" : ""
                     }`}
                     placeholder="votre@email.com"
                   />
@@ -281,17 +615,21 @@ export default function LoginPage() {
                     autoComplete="current-password"
                     required
                     onChange={() => clearFieldError("password")}
+                    disabled={blockStatus.blocked}
                     className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 focus:ring-[#0B2749] focus:border-transparent transition-all duration-200 placeholder-gray-500 ${
                       formErrors.password || actionData?.error
                         ? "border-red-300 bg-red-50"
                         : "border-gray-300 hover:border-gray-400"
+                    } ${
+                      blockStatus.blocked ? "opacity-50 cursor-not-allowed" : ""
                     }`}
                     placeholder="••••••••"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center hover:scale-110 transition-transform"
+                    disabled={blockStatus.blocked}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center hover:scale-110 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {showPassword ? (
                       <EyeOff className="h-5 w-5 text-gray-400 hover:text-gray-600" />
@@ -309,12 +647,24 @@ export default function LoginPage() {
               </div>
 
               {/* Messages d'erreur et de succès */}
-              {actionData?.error && (
-                <div className="flex items-center space-x-2 text-red-600 bg-red-50 p-4 rounded-lg border border-red-200">
-                  <AlertCircle className="h-5 w-5 flex-shrink-0" />
-                  <span className="text-sm font-medium">
-                    {actionData.error}
-                  </span>
+              {getErrorMessage() && (
+                <div className="flex items-start space-x-2 text-red-600 bg-red-50 p-4 rounded-lg border border-red-200">
+                  <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <span className="text-sm font-medium">
+                      {getErrorMessage()}
+                    </span>
+                    {blockStatus.attempts >= MAX_ATTEMPTS_BEFORE_LONG_BLOCK && (
+                      <p className="text-sm mt-2">
+                        <a
+                          href="/reinitialize_password"
+                          className="text-blue-600 hover:text-blue-800 underline"
+                        >
+                          Réinitialiser votre mot de passe
+                        </a>
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -328,7 +678,7 @@ export default function LoginPage() {
               {/* Lien mot de passe oublié */}
               <div className="text-right">
                 <a
-                  href="/forgot-password"
+                  href="/reinitialize_password"
                   className="text-sm text-[#0B2749] hover:text-blue-600 font-medium transition-colors duration-200 hover:underline"
                 >
                   Mot de passe oublié ?
@@ -338,10 +688,15 @@ export default function LoginPage() {
               {/* Bouton de connexion */}
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || blockStatus.blocked}
                 className="w-full bg-gradient-to-r from-[#0B2749] to-blue-600 text-white py-3 px-4 rounded-lg font-semibold hover:from-[#0a2240] hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-[#0B2749] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 active:scale-95 shadow-lg hover:shadow-xl"
               >
-                {isSubmitting ? (
+                {blockStatus.blocked ? (
+                  <div className="flex items-center justify-center space-x-2">
+                    <Clock className="w-5 h-5" />
+                    <span>Bloqué - {formatRemainingTime(remainingTime)}</span>
+                  </div>
+                ) : isSubmitting ? (
                   <div className="flex items-center justify-center space-x-2">
                     <Loader2 className="w-5 h-5 animate-spin" />
                     <span>Connexion en cours...</span>
