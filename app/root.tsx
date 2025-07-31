@@ -1,6 +1,5 @@
 import {
   Links,
-  LiveReload,
   Meta,
   Outlet,
   Scripts,
@@ -8,12 +7,14 @@ import {
 } from "@remix-run/react";
 import type { LinksFunction } from "@remix-run/node";
 
+import ErrorBoundary from "~/components/ErrorBoundary";
+
 import "./tailwind.css";
 
 export const links: LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
   {
-    rel: "preconnect",
+    rel: "preconnect", 
     href: "https://fonts.gstatic.com",
     crossOrigin: "anonymous",
   },
@@ -25,15 +26,17 @@ export const links: LinksFunction = () => [
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="fr">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
         <Links />
       </head>
-      <body>
-        {children}
+      <body className="font-sans bg-gray-50">
+        <ErrorBoundary>
+          {children}
+        </ErrorBoundary>
         <ScrollRestoration />
         <Scripts />
       </body>
@@ -42,18 +45,5 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  return (
-    <html lang="fr">
-      <head>
-        <Meta />
-        <Links />
-      </head>
-      <body className="font-sans bg-gray-50">
-        <Outlet />
-        <ScrollRestoration />
-        <Scripts />
-        <LiveReload />
-      </body>
-    </html>
-  );
+  return <Outlet />;
 }

@@ -1,16 +1,10 @@
-import { redirect } from "@remix-run/node";
-import { authTokenCookie } from "~/utils/session.server";
+import type { ActionFunctionArgs } from "@remix-run/node";
+import { destroyUserSession } from "~/utils/session.server";
 
-export const loader = async () => {
-  return redirect("/login", {
-    headers: {
-      "Set-Cookie": await authTokenCookie.serialize("", {
-        maxAge: 0, // Supprime le cookie
-      }),
-    },
-  });
-};
+export async function action({ request }: ActionFunctionArgs) {
+  return destroyUserSession("/");
+}
 
-export default function LogoutPage() {
-  return null;
+export async function loader() {
+  return destroyUserSession("/");
 }
