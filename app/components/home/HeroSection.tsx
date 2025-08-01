@@ -21,7 +21,7 @@ export function HeroSection() {
 
       <div className="lg:w-1/2">
         <img
-          src="/app/assets/images/banner_hero.webp"
+          src="public/images/banner_hero.webp"
           alt="Équipe NUKU en collaboration"
           className="w-full h-80 lg:h-96 object-cover rounded-lg shadow-lg"
         />

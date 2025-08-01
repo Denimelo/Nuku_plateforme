@@ -228,7 +228,7 @@ function Sidebar({ navigation, user }: { navigation: any[]; user: User }) {
               <div className="relative z-10">
                 <img
                   className="h-12 w-auto filter brightness-110 drop-shadow-2xl"
-                  src="/app/assets/images/logo_nuku.webp"
+                  src="../../../images/logo_nuku.webp"
                   alt="NUKU"
                 />
               </div>

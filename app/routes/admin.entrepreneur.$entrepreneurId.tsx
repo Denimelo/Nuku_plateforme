@@ -65,36 +65,46 @@ export async function action({ request, params }: ActionFunctionArgs) {
   }
 
   const entrepreneurId = params.entrepreneurId;
+  if (!entrepreneurId) {
+    return json({ error: "ID entrepreneur manquant" }, { status: 400 });
+  }
+
   const formData = await request.formData();
-  const action = formData.get("action") as string;
+  const actionType = formData.get("action") as string;
 
   try {
-    switch (action) {
+    let response;
+    switch (actionType) {
       case "validate":
-        await fetch(`${API_BASE_URL}/admin/entrepreneurs/${entrepreneurId}/validate`, {
+        response = await fetch(`${API_BASE_URL}/admin/entrepreneurs/${entrepreneurId}/validate`, {
           method: "PUT",
           headers: { 
             Authorization: `Bearer ${session.token}`,
             "Content-Type": "application/json"
           }
         });
-        return json({ success: "Entrepreneur validé avec succès" });
+        if (!response.ok) throw new Error("Échec de la validation");
+        return redirect("/admin/entrepreneurs"); // Redirection après succès
 
       case "reject":
-        await fetch(`${API_BASE_URL}/admin/entrepreneurs/${entrepreneurId}/reject`, {
+        response = await fetch(`${API_BASE_URL}/admin/entrepreneurs/${entrepreneurId}/reject`, {
           method: "PUT",
           headers: { 
             Authorization: `Bearer ${session.token}`,
             "Content-Type": "application/json"
           }
         });
-        return json({ success: "Candidature rejetée" });
+        if (!response.ok) throw new Error("Échec du rejet");
+        return redirect("/admin/entrepreneurs"); // Redirection après succès
 
       default:
         return json({ error: "Action non reconnue" }, { status: 400 });
     }
   } catch (error: any) {
-    return json({ error: error.message || "Erreur lors de l'action" }, { status: 400 });
+    return json({ 
+      error: error.message || "Erreur lors de l'action",
+      status: 400 
+    });
   }
 }
 

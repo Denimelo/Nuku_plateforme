@@ -60,7 +60,7 @@ export default function ForgotPassword() {
                     <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent rounded-2xl"></div>
                     <img
                       className="relative z-10 h-12 w-auto filter brightness-110 drop-shadow-lg"
-                      src="/app/assets/images/logo_nuku.webp"
+                      src="public/images/logo_nuku.webp"
                       alt="NUKU"
                     />
                     

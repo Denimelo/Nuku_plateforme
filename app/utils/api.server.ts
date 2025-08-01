@@ -1,19 +1,19 @@
 const API_BASE_URL = "https://nuku-api.onrender.com/api/v1";
 
 interface ApiOptions {
-  method?: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
   body?: any;
   token?: string;
   headers?: Record<string, string>;
 }
 
 async function apiCall(endpoint: string, options: ApiOptions = {}) {
-  const { method = "GET", body, token, headers = {} } = options;
+  const { method = 'GET', body, token, headers = {} } = options;
 
   const config: RequestInit = {
     method,
     headers: {
-      "Content-Type": "application/json",
+      'Content-Type': 'application/json',
       ...headers,
     },
   };
@@ -25,22 +25,21 @@ async function apiCall(endpoint: string, options: ApiOptions = {}) {
     };
   }
 
-  if (body && method !== "GET") {
+  if (body && method !== 'GET') {
     config.body = JSON.stringify(body);
   }
 
-  console.log(`Making API call to: ${API_BASE_URL}${endpoint}`); // Debug
-  console.log("Config:", config); // Debug
+  console.log(`Making API call to: ${API_BASE_URL}${endpoint}`);
+  console.log('Config:', config);
 
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
     
-    console.log("Response status:", response.status); // Debug
-    console.log("Response headers:", response.headers); // Debug
-
+    console.log('Response status:', response.status);
+    
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("API Error response:", errorText); // Debug
+      console.error('API Error response:', errorText);
       
       let errorData;
       try {
@@ -53,82 +52,163 @@ async function apiCall(endpoint: string, options: ApiOptions = {}) {
     }
 
     const data = await response.json();
-    console.log("API Success response:", data); // Debug
+    console.log('API Success response:', data);
     return data;
   } catch (error) {
-    console.error("API Call error:", error);
+    console.error('API Call error:', error);
     throw error;
   }
+}
+
+// ========== TYPES ==========
+interface UserRegistrationData {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  password: string;
+}
+
+interface EntrepreneurRegistrationData extends UserRegistrationData {
+  company_name: string;
+  company_description?: string;
+  industry_sector?: string;
+  number_of_employees?: number;
+  annual_revenue?: number;
+  founding_date?: string;
+  company_registration_number?: string;
+  has_raised_funds?: boolean;
+  amount_raised?: number;
+  wants_to_raise_funds?: boolean;
+  desired_funding_amount?: number;
+  company_not_created: boolean;
+  company_recently_created: boolean;
+  company_established: boolean;
+  otp_code: string;
+}
+
+interface ExpertData {
+  user: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone?: string;
+  };
+  specialization: string;
+  experience_years?: number;
+  linkedin_url?: string;
+  bio?: string;
+  hourly_rate?: number;
+}
+
+interface ProgramApplicationData {
+  motivation: string;
+  business_plan_url?: string;
+  additional_documents?: string[];
+}
+
+interface ModuleContent {
+  title: string;
+  content_type: 'video' | 'article' | 'quiz';
+  url?: string;
+  content?: string;
+  duration_minutes?: number;
+}
+
+interface Message {
+  sender_id: string;
+  content: string;
+  timestamp: string;
 }
 
 // ========== AUTH API SERVER ==========
 export const authServerAPI = {
   login: async (email: string, password: string) => {
-    try {
-      const response = await apiCall("/auth/login", {
-        method: "POST",
-        body: { email, password },
-      });
-      
-      console.log("API Login response:", response); // Debug
-      return response;
-    } catch (error) {
-      console.error("API Login error:", error);
-      throw error;
-    }
+    return apiCall('/auth/login', {
+      method: 'POST',
+      body: { email, password },
+    });
   },
 
-  register: async (data: any) => {
-    return apiCall("/auth/register", {
-      method: "POST",
+  register: async (data: UserRegistrationData) => {
+    return apiCall('/auth/register', {
+      method: 'POST',
       body: data,
     });
   },
 
-  verifyRegistration: async (data: any) => {
-    return apiCall("/auth/register/verify", {
-      method: "POST",
+  verifyRegistration: async (data: EntrepreneurRegistrationData) => {
+    return apiCall('/auth/register/verify', {
+      method: 'POST',
       body: data,
+    });
+  },
+
+  resendOTP: async (email: string) => {
+    return apiCall('/otp/send', {
+      method: 'POST',
+      body: { email },
+    });
+  },
+
+  verifyOTP: async (email: string) => {
+    return apiCall('/otp/verify', {
+      method: 'POST',
+      body: { email },
     });
   },
 
   resetPassword: async (email: string) => {
-    return apiCall("/auth/reset-password", {
-      method: "POST",
+    return apiCall('/auth/reset-password', {
+      method: 'POST',
       body: { email },
     });
   },
 
   verifyPasswordReset: async (email: string, otp_code: string, new_password: string) => {
-    return apiCall("/auth/reset-password/verify", {
-      method: "POST",
+    return apiCall('/auth/reset-password/verify', {
+      method: 'POST',
       body: { email, otp_code, new_password },
     });
   },
 
   changePassword: async (token: string, current_password: string, new_password: string) => {
-    return apiCall("/auth/change-password", {
-      method: "POST",
+    return apiCall('/auth/change-password', {
+      method: 'POST',
       body: { current_password, new_password },
       token,
     });
   },
 
   me: async (token: string) => {
-    return apiCall("/auth/me", { token });
+    return apiCall('/auth/me', { token });
   },
 };
 
 // ========== USERS API SERVER ==========
 export const usersServerAPI = {
   getProfile: async (token: string) => {
-    return apiCall("/users/me", { token });
+    return apiCall('/users/me', { token });
   },
 
   updateProfile: async (token: string, data: any) => {
-    return apiCall("/users/me", {
-      method: "PUT",
+    return apiCall('/users/me', {
+      method: 'PUT',
       body: data,
+      token,
+    });
+  },
+
+  uploadAvatar: async (token: string, file: File) => {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    
+    return apiCall('/users/me/avatar', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      body: formData,
       token,
     });
   },
@@ -136,9 +216,10 @@ export const usersServerAPI = {
 
 // ========== ADMIN API SERVER ==========
 export const adminServerAPI = {
-  // Gestion des utilisateurs
-  getUsers: async (token: string) => {
-    return apiCall("/admin/users", { token });
+  // Users
+  getUsers: async (token: string, filters?: { status?: string; user_type?: string }) => {
+    const query = filters ? `?${new URLSearchParams(filters).toString()}` : '';
+    return apiCall(`/admin/users${query}`, { token });
   },
 
   getUser: async (token: string, userId: string) => {
@@ -147,21 +228,21 @@ export const adminServerAPI = {
 
   activateUser: async (token: string, userId: string) => {
     return apiCall(`/admin/users/${userId}/activate`, {
-      method: "PUT",
+      method: 'PUT',
       token,
     });
   },
 
   deactivateUser: async (token: string, userId: string) => {
     return apiCall(`/admin/users/${userId}/deactivate`, {
-      method: "PUT",
+      method: 'PUT',
       token,
     });
   },
 
   updateUser: async (token: string, userId: string, userData: any) => {
     return apiCall(`/admin/users/${userId}`, {
-      method: "PUT",
+      method: 'PUT',
       body: userData,
       token,
     });
@@ -169,31 +250,27 @@ export const adminServerAPI = {
 
   deleteUser: async (token: string, userId: string) => {
     return apiCall(`/admin/users/${userId}`, {
-      method: "DELETE",
+      method: 'DELETE',
       token,
     });
   },
 
-  // Gestion des experts
-  getExperts: async (token: string) => {
-    return apiCall("/admin/experts", { token });
+  // Experts
+  getExperts: async (token: string, filters?: { is_active?: boolean }) => {
+    const query = filters ? `?${new URLSearchParams(filters).toString()}` : '';
+    return apiCall(`/admin/experts${query}`, { token });
   },
 
   getExpert: async (token: string, expertId: string) => {
     return apiCall(`/admin/experts/${expertId}`, { token });
   },
 
-
-  createExpert: async (token: string, expertData: any) => {
-    // Restructurer les données pour correspondre au schéma backend
+  createExpert: async (token: string, expertData: ExpertData) => {
     const backendData = {
       user: {
-        first_name: expertData.user.first_name,
-        last_name: expertData.user.last_name,
-        email: expertData.user.email,
-        phone: expertData.user.phone || null,
-        user_type: "expert", // Obligatoire
-        password: "TemporaryPassword123!" // Mot de passe temporaire généré côté frontend
+        ...expertData.user,
+        user_type: 'expert',
+        password: 'TemporaryPassword123!'
       },
       specialization: expertData.specialization,
       years_of_experience: expertData.experience_years || 0,
@@ -204,25 +281,32 @@ export const adminServerAPI = {
       is_active: true
     };
 
-    console.log("Données envoyées au backend:", JSON.stringify(backendData, null, 2)); // Debug amélioré
-
-    return apiCall("/admin/experts", {
-      method: "POST",
+    return apiCall('/admin/experts', {
+      method: 'POST',
       body: backendData,
+      token,
+    });
+  },
+
+  updateExpert: async (token: string, expertId: string, data: Partial<ExpertData>) => {
+    return apiCall(`/admin/experts/${expertId}`, {
+      method: 'PUT',
+      body: data,
       token,
     });
   },
 
   deleteExpert: async (token: string, expertId: string) => {
     return apiCall(`/admin/experts/${expertId}`, {
-      method: "DELETE",
+      method: 'DELETE',
       token,
     });
   },
 
-  // Gestion des entrepreneurs
-  getEntrepreneurs: async (token: string) => {
-    return apiCall("/admin/entrepreneurs", { token });
+  // Entrepreneurs
+  getEntrepreneurs: async (token: string, filters?: { validation_status?: string }) => {
+    const query = filters ? `?${new URLSearchParams(filters).toString()}` : '';
+    return apiCall(`/admin/entrepreneurs${query}`, { token });
   },
 
   getEntrepreneur: async (token: string, entrepreneurId: string) => {
@@ -231,14 +315,63 @@ export const adminServerAPI = {
 
   validateEntrepreneur: async (token: string, entrepreneurId: string) => {
     return apiCall(`/admin/entrepreneurs/${entrepreneurId}/validate`, {
-      method: "PUT",
+      method: 'PUT',
       token,
     });
   },
 
-  rejectEntrepreneur: async (token: string, entrepreneurId: string) => {
+  rejectEntrepreneur: async (token: string, entrepreneurId: string, reason?: string) => {
     return apiCall(`/admin/entrepreneurs/${entrepreneurId}/reject`, {
-      method: "PUT",
+      method: 'PUT',
+      body: { reason },
+      token,
+    });
+  },
+
+  // Programs
+  createProgram: async (token: string, programData: any) => {
+    return apiCall('/admin/programs', {
+      method: 'POST',
+      body: programData,
+      token,
+    });
+  },
+
+  updateProgram: async (token: string, programId: string, programData: any) => {
+    return apiCall(`/admin/programs/${programId}`, {
+      method: 'PUT',
+      body: programData,
+      token,
+    });
+  },
+
+  deleteProgram: async (token: string, programId: string) => {
+    return apiCall(`/admin/programs/${programId}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+
+  // Modules
+  createModule: async (token: string, programId: string, moduleData: any) => {
+    return apiCall(`/admin/programs/${programId}/modules`, {
+      method: 'POST',
+      body: moduleData,
+      token,
+    });
+  },
+
+  updateModule: async (token: string, moduleId: string, moduleData: any) => {
+    return apiCall(`/admin/modules/${moduleId}`, {
+      method: 'PUT',
+      body: moduleData,
+      token,
+    });
+  },
+
+  deleteModule: async (token: string, moduleId: string) => {
+    return apiCall(`/admin/modules/${moduleId}`, {
+      method: 'DELETE',
       token,
     });
   },
@@ -247,71 +380,145 @@ export const adminServerAPI = {
 // ========== ENTREPRENEURS API SERVER ==========
 export const entrepreneursServerAPI = {
   getProfile: async (token: string) => {
-    return apiCall("/entrepreneur/me", { token });
+    return apiCall('/entrepreneur/me', { token });
   },
 
   updateProfile: async (token: string, data: any) => {
-    return apiCall("/entrepreneur/me", {
-      method: "PUT",
+    return apiCall('/entrepreneur/me', {
+      method: 'PUT',
       body: data,
       token,
     });
   },
 
   updateDocuments: async (token: string, documents: any) => {
-    return apiCall("/entrepreneur/me/documents", {
-      method: "PUT",
+    return apiCall('/entrepreneur/me/documents', {
+      method: 'PUT',
       body: documents,
       token,
     });
   },
 
   getEntrepreneurs: async (token: string) => {
-    return apiCall("/entrepreneurs/", { token });
+    return apiCall('/entrepreneurs/', { token });
   },
 
   getEntrepreneur: async (token: string, entrepreneurId: string) => {
     return apiCall(`/entrepreneurs/${entrepreneurId}`, { token });
+  },
+
+  getMyApplications: async (token: string) => {
+    return apiCall('/entrepreneur/me/applications', { token });
+  },
+
+  getMyAssignments: async (token: string) => {
+    return apiCall('/entrepreneur/me/assignments', { token });
   },
 };
 
 // ========== EXPERTS API SERVER ==========
 export const expertsServerAPI = {
   getProfile: async (token: string) => {
-    return apiCall("/expert/me", { token });
+    return apiCall('/expert/me', { token });
   },
 
   updateProfile: async (token: string, data: any) => {
-    return apiCall("/expert/me", {
-      method: "PUT",
+    return apiCall('/expert/me', {
+      method: 'PUT',
       body: data,
       token,
     });
   },
 
+  uploadCV: async (token: string, file: File) => {
+    const formData = new FormData();
+    formData.append('cv', file);
+    
+    return apiCall('/expert/me/cv', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      body: formData,
+      token,
+    });
+  },
+
   getExperts: async (token: string) => {
-    return apiCall("/experts/", { token });
+    return apiCall('/experts/', { token });
   },
 
   getExpert: async (token: string, expertId: string) => {
     return apiCall(`/experts/${expertId}`, { token });
   },
+
+  getMySchedule: async (token: string) => {
+    return apiCall('/expert/me/schedule', { token });
+  },
+
+  updateAvailability: async (token: string, availability: any) => {
+    return apiCall('/expert/me/availability', {
+      method: 'PUT',
+      body: availability,
+      token,
+    });
+  },
 };
 
 // ========== PROGRAMS API SERVER ==========
 export const programsServerAPI = {
-  getPrograms: async (token: string) => {
-    return apiCall("/programs/", { token });
+  // Récupération
+  getPrograms: async (token: string, activeOnly: boolean = true) => {
+    return apiCall(`/programs/?active_only=${activeOnly}`, { token });
   },
 
   getProgram: async (token: string, programId: string) => {
     return apiCall(`/programs/${programId}`, { token });
   },
 
-  applyToProgram: async (token: string, programId: string, data: any) => {
-    return apiCall(`/programs/${programId}/apply`, {
+  getProgramParticipants: async (token: string, programId: string) => {
+    return apiCall(`/programs/${programId}/participants`, { token });
+  },
+
+  getProgramStats: async (token: string, programId: string) => {
+    return apiCall(`/programs/${programId}/stats`, { token });
+  },
+
+  // Création et modification (Admin)
+  createProgram: async (token: string, programData: any) => {
+    return apiCall("/programs/", {
       method: "POST",
-      body: data,
+      body: programData,
+      token,
+    });
+  },
+
+  updateProgram: async (token: string, programId: string, programData: any) => {
+    return apiCall(`/programs/${programId}`, {
+      method: "PUT",
+      body: programData,
+      token,
+    });
+  },
+
+  deleteProgram: async (token: string, programId: string) => {
+    return apiCall(`/programs/${programId}`, {
+      method: "DELETE",
+      token,
+    });
+  },
+
+  // Gestion des participants
+  enrollEntrepreneur: async (token: string, programId: string) => {
+    return apiCall(`/programs/${programId}/enroll`, {
+      method: "POST",
+      token,
+    });
+  },
+
+  leaveProgram: async (token: string, programId: string) => {
+    return apiCall(`/programs/${programId}/leave`, {
+      method: "DELETE",
       token,
     });
   },
@@ -319,8 +526,9 @@ export const programsServerAPI = {
 
 // ========== MODULES API SERVER ==========
 export const modulesServerAPI = {
+  // Récupération
   getModules: async (token: string, programId?: string) => {
-    const endpoint = programId ? `/modules/program/${programId}` : "/modules/my-progress";
+    const endpoint = programId ? `/modules/program/${programId}` : '/modules/';
     return apiCall(endpoint, { token });
   },
 
@@ -331,45 +539,135 @@ export const modulesServerAPI = {
   getModuleContents: async (token: string, moduleId: string) => {
     return apiCall(`/modules/${moduleId}/contents`, { token });
   },
+
+  // Création et modification
+  createModule: async (token: string, moduleData: any) => {
+    return apiCall("/modules/", {
+      method: "POST",
+      body: moduleData,
+      token,
+    });
+  },
+
+  updateModule: async (token: string, moduleId: string, moduleData: any) => {
+    return apiCall(`/modules/${moduleId}`, {
+      method: "PUT",
+      body: moduleData,
+      token,
+    });
+  },
+
+  deleteModule: async (token: string, moduleId: string) => {
+    return apiCall(`/modules/${moduleId}`, {
+      method: "DELETE",
+      token,
+    });
+  },
+
+  // Gestion du contenu
+  addContent: async (token: string, moduleId: string, contentData: any) => {
+    return apiCall(`/modules/${moduleId}/contents`, {
+      method: "POST",
+      body: contentData,
+      token,
+    });
+  },
 };
 
 // ========== MESSAGES API SERVER ==========
 export const messagesServerAPI = {
   getConversations: async (token: string) => {
-    return apiCall("/messages/conversations/", { token });
+    return apiCall('/messages/conversations/', { token });
   },
 
   getMessages: async (token: string, conversationId: string) => {
     return apiCall(`/messages/conversations/${conversationId}`, { token });
   },
+
+  sendMessage: async (token: string, conversationId: string, content: string) => {
+    return apiCall(`/messages/conversations/${conversationId}`, {
+      method: 'POST',
+      body: { content },
+      token,
+    });
+  },
+
+  startConversation: async (token: string, recipientId: string, initialMessage: string) => {
+    return apiCall('/messages/conversations', {
+      method: 'POST',
+      body: {
+        recipient_id: recipientId,
+        initial_message: initialMessage,
+      },
+      token,
+    });
+  },
 };
 
 // ========== NOTIFICATIONS API SERVER ==========
 export const notificationsServerAPI = {
-  getNotifications: async (token: string) => {
-    return apiCall("/notifications/", { token });
+  getNotifications: async (token: string, filters?: { is_read?: boolean }) => {
+    const query = filters ? `?${new URLSearchParams(filters).toString()}` : '';
+    return apiCall(`/notifications/${query}`, { token });
   },
 
   getNotificationCounts: async (token: string) => {
-    return apiCall("/notifications/counts", { token });
+    return apiCall('/notifications/counts', { token });
+  },
+
+  markAsRead: async (token: string, notificationId: string) => {
+    return apiCall(`/notifications/${notificationId}/read`, {
+      method: 'PUT',
+      token,
+    });
+  },
+
+  markAllAsRead: async (token: string) => {
+    return apiCall('/notifications/mark-all-read', {
+      method: 'PUT',
+      token,
+    });
   },
 };
 
 // ========== CALLS API SERVER ==========
 export const callsServerAPI = {
   getUpcomingCalls: async (token: string) => {
-    return apiCall("/calls/upcoming", { token });
+    return apiCall('/calls/upcoming', { token });
   },
 
   getCall: async (token: string, callId: string) => {
     return apiCall(`/calls/${callId}`, { token });
+  },
+
+  scheduleCall: async (token: string, expertId: string, slotId: string, agenda: string) => {
+    return apiCall('/calls/schedule', {
+      method: 'POST',
+      body: {
+        expert_id: expertId,
+        slot_id: slotId,
+        agenda,
+      },
+      token,
+    });
+  },
+
+  cancelCall: async (token: string, callId: string) => {
+    return apiCall(`/calls/${callId}/cancel`, {
+      method: 'PUT',
+      token,
+    });
+  },
+
+  getAvailableSlots: async (token: string, expertId: string) => {
+    return apiCall(`/calls/experts/${expertId}/availability`, { token });
   },
 };
 
 // ========== ASSIGNMENTS API SERVER ==========
 export const assignmentsServerAPI = {
   getAssignments: async (token: string) => {
-    return apiCall("/assignments/entrepreneur/available", { token });
+    return apiCall('/assignments/entrepreneur/available', { token });
   },
 
   getAssignment: async (token: string, assignmentId: string) => {
@@ -377,6 +675,34 @@ export const assignmentsServerAPI = {
   },
 
   getMySubmissions: async (token: string) => {
-    return apiCall("/assignments/entrepreneur/submissions", { token });
+    return apiCall('/assignments/entrepreneur/submissions', { token });
+  },
+
+  submitAssignment: async (token: string, assignmentId: string, submissionData: any) => {
+    return apiCall(`/assignments/${assignmentId}/submit`, {
+      method: 'POST',
+      body: submissionData,
+      token,
+    });
+  },
+
+  getFeedback: async (token: string, submissionId: string) => {
+    return apiCall(`/assignments/submissions/${submissionId}/feedback`, { token });
+  },
+};
+
+// ========== REPORTS API SERVER ==========
+export const reportsServerAPI = {
+  getUserActivity: async (token: string, userId?: string) => {
+    const endpoint = userId ? `/reports/users/${userId}/activity` : '/reports/my-activity';
+    return apiCall(endpoint, { token });
+  },
+
+  getProgramStats: async (token: string, programId: string) => {
+    return apiCall(`/reports/programs/${programId}/stats`, { token });
+  },
+
+  getPlatformMetrics: async (token: string) => {
+    return apiCall('/reports/platform-metrics', { token });
   },
 };

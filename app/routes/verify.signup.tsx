@@ -1,32 +1,104 @@
 import { useState, useEffect } from "react";
+import { Form, useActionData, useSearchParams } from "@remix-run/react";
+import type { ActionFunctionArgs } from "@remix-run/node";
+import { json, redirect } from "@remix-run/node";
+import { authServerAPI } from "~/utils/api.server";
+
+// Action pour gérer la vérification OTP + finalisation inscription
+export async function action({ request }: ActionFunctionArgs) {
+  const formData = await request.formData();
+  
+  const verificationData = {
+    // Infos utilisateur (répétées pour l'API)
+    first_name: formData.get("first_name") as string,
+    last_name: formData.get("last_name") as string,
+    email: formData.get("email") as string,
+    phone: formData.get("phone") as string,
+    password: formData.get("password") as string,
+    otp_code: formData.get("otp_code") as string,
+    
+    // Infos entreprise
+    company_name: formData.get("company_name") as string,
+    company_description: formData.get("company_description") as string,
+    industry_sector: formData.get("industry_sector") as string,
+    number_of_employees: parseInt(formData.get("number_of_employees") as string) || 1,
+    
+    // Données économiques (optionnelles)
+    annual_revenue: formData.get("annual_revenue") ? parseFloat(formData.get("annual_revenue") as string) : undefined,
+    founding_date: formData.get("founding_date") as string || undefined,
+    company_registration_number: formData.get("company_registration_number") as string || undefined,
+    
+    // Financement (optionnel)
+    has_raised_funds: formData.get("has_raised_funds") === "true",
+    amount_raised: formData.get("amount_raised") ? parseFloat(formData.get("amount_raised") as string) : undefined,
+    wants_to_raise_funds: formData.get("wants_to_raise_funds") === "true",
+    desired_funding_amount: formData.get("desired_funding_amount") ? parseFloat(formData.get("desired_funding_amount") as string) : undefined,
+    
+    // Niveau de maturité (un seul doit être True)
+    company_not_created: formData.get("company_not_created") === "true",
+    company_recently_created: formData.get("company_recently_created") === "true",
+    company_established: formData.get("company_established") === "true",
+  };
+
+  if (!verificationData.email || !verificationData.otp_code) {
+    return json({ error: "Email et code OTP requis" }, { status: 400 });
+  }
+
+  if (!verificationData.company_name) {
+    return json({ error: "Le nom de l'entreprise est requis" }, { status: 400 });
+  }
+
+  try {
+    await authServerAPI.verifyRegistration(verificationData);
+    return redirect("/login?message=registration_complete");
+  } catch (error: any) {
+    return json(
+      { error: error.message || "Erreur lors de la vérification" },
+      { status: 400 }
+    );
+  }
+}
 
 export default function SignupVerify() {
   const [isLoading, setIsLoading] = useState(false);
-  const [actionData, setActionData] = useState(null);
-  const [email, setEmail] = useState("");
+  const [searchParams] = useSearchParams();
+  const actionData = useActionData<typeof action>();
+  const email = searchParams.get("email") || "";
+  const userId = searchParams.get("user_id") || "";
+  
   const [otpCode, setOtpCode] = useState("");
   const [resendTimer, setResendTimer] = useState(60);
   const [canResend, setCanResend] = useState(false);
+
+  // Données utilisateur (à récupérer depuis l'étape 1 ou localStorage)
+  const [userData, setUserData] = useState({
+    first_name: "",
+    last_name: "",
+    phone: "",
+    password: "",
+  });
 
   const [formData, setFormData] = useState({
     company_name: "",
     company_description: "",
     industry_sector: "",
     number_of_employees: "1",
-    company_not_created: false,
-    company_recently_created: false,
-    company_established: false,
+    
+    // Niveau de maturité
+    company_maturity: "", // "not_created", "recently_created", "established"
+    
+    // Champs conditionnels selon la maturité
+    founding_date: "",
+    company_registration_number: "",
+    annual_revenue: "",
+    has_raised_funds: false,
+    amount_raised: "",
+    wants_to_raise_funds: false,
+    desired_funding_amount: "",
   });
 
-  // Simuler la récupération de l'email depuis l'URL
+  // Timer pour le renvoi du code
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const emailParam = urlParams.get("email");
-    if (emailParam) {
-      setEmail(decodeURIComponent(emailParam));
-    }
-
-    // Timer pour le renvoi du code
     const timer = setInterval(() => {
       setResendTimer((prev) => {
         if (prev <= 1) {
@@ -41,17 +113,40 @@ export default function SignupVerify() {
     return () => clearInterval(timer);
   }, []);
 
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
+  // Récupérer les données utilisateur depuis sessionStorage ou URL
+  useEffect(() => {
+    const storedUserData = sessionStorage.getItem('signup_user_data');
+    if (storedUserData) {
+      setUserData(JSON.parse(storedUserData));
+    }
+  }, []);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target;
     setFormData({
       ...formData,
-      [name]: type === "checkbox" ? checked : value,
+      [name]: type === "checkbox" ? (e.target as HTMLInputElement).checked : value,
     });
   };
 
-  const handleOtpChange = (e) => {
+  const handleOtpChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, "").slice(0, 6);
     setOtpCode(value);
+  };
+
+  const handleMaturityChange = (maturity: string) => {
+    setFormData({
+      ...formData,
+      company_maturity: maturity,
+      // Reset des champs conditionnels
+      founding_date: "",
+      company_registration_number: "",
+      annual_revenue: "",
+      has_raised_funds: false,
+      amount_raised: "",
+      wants_to_raise_funds: false,
+      desired_funding_amount: "",
+    });
   };
 
   const handleResendCode = async () => {
@@ -60,57 +155,178 @@ export default function SignupVerify() {
     setCanResend(false);
     setResendTimer(60);
     
-    // Simuler l'appel API de renvoi
-    setTimeout(() => {
-      setActionData({ success: "Code renvoyé avec succès !" });
-      
-      const timer = setInterval(() => {
-        setResendTimer((prev) => {
-          if (prev <= 1) {
-            setCanResend(true);
-            clearInterval(timer);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    // Appel API pour renvoyer le code (si disponible dans votre backend)
+    // await authServerAPI.resendOTP(email);
+    
+    const timer = setInterval(() => {
+      setResendTimer((prev) => {
+        if (prev <= 1) {
+          setCanResend(true);
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    
-    if (!otpCode || otpCode.length !== 6) {
-      setActionData({ error: "Veuillez saisir un code de vérification valide" });
-      return;
-    }
-
-    if (!formData.company_name || (!formData.company_not_created && !formData.company_recently_created && !formData.company_established)) {
-      setActionData({ error: "Veuillez compléter toutes les informations requises" });
-      return;
-    }
-
+  const handleSubmit = () => {
     setIsLoading(true);
-    
-    // Préparer les données pour l'API
-    const submissionData = {
-      email: email,
-      otp_code: otpCode,
-      company_name: formData.company_name,
-      company_description: formData.company_description,
-      industry_sector: formData.industry_sector,
-      number_of_employees: parseInt(formData.number_of_employees) || 1,
-      company_not_created: formData.company_not_created,
-      company_recently_created: formData.company_recently_created,
-      company_established: formData.company_established,
-    };
-    
-    // Simulation d'appel API
-    setTimeout(() => {
-      setIsLoading(false);
-      // Redirection vers login avec message de succès
-      window.location.href = "/login?message=registration_complete";
-    }, 2000);
+  };
+
+  const getMaturityFields = () => {
+    switch (formData.company_maturity) {
+      case "recently_created":
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Date de création
+                </label>
+                <input
+                  type="date"
+                  name="founding_date"
+                  value={formData.founding_date}
+                  onChange={handleChange}
+                  className="block w-full px-3 py-3 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Numéro d'enregistrement
+                </label>
+                <input
+                  type="text"
+                  name="company_registration_number"
+                  value={formData.company_registration_number}
+                  onChange={handleChange}
+                  placeholder="Numéro SIRET/SIREN"
+                  className="block w-full px-3 py-3 bg-white border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300"
+                />
+              </div>
+            </div>
+          </div>
+        );
+      
+      case "established":
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Date de création
+                </label>
+                <input
+                  type="date"
+                  name="founding_date"
+                  value={formData.founding_date}
+                  onChange={handleChange}
+                  className="block w-full px-3 py-3 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Numéro d'enregistrement *
+                </label>
+                <input
+                  type="text"
+                  name="company_registration_number"
+                  value={formData.company_registration_number}
+                  onChange={handleChange}
+                  required
+                  placeholder="Numéro SIRET/SIREN"
+                  className="block w-full px-3 py-3 bg-white border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300"
+                />
+              </div>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Chiffre d'affaires annuel (€)
+              </label>
+              <input
+                type="number"
+                name="annual_revenue"
+                value={formData.annual_revenue}
+                onChange={handleChange}
+                placeholder="Ex: 150000"
+                className="block w-full px-3 py-3 bg-white border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300"
+              />
+            </div>
+
+            {/* Section financement */}
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <h5 className="text-base font-semibold text-slate-800 mb-3">Financement</h5>
+              
+              <div className="space-y-3">
+                <div className="flex items-center">
+                  <input
+                    id="has_raised_funds"
+                    name="has_raised_funds"
+                    type="checkbox"
+                    checked={formData.has_raised_funds}
+                    onChange={(e) => setFormData({...formData, has_raised_funds: e.target.checked})}
+                    className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300 rounded"
+                  />
+                  <label htmlFor="has_raised_funds" className="ml-3 block text-sm text-slate-700">
+                    Avez-vous déjà levé des fonds ?
+                  </label>
+                </div>
+
+                {formData.has_raised_funds && (
+                  <div>
+                    <label className="block text-sm text-slate-700 mb-1">
+                      Montant levé (€)
+                    </label>
+                    <input
+                      type="number"
+                      name="amount_raised"
+                      value={formData.amount_raised}
+                      onChange={handleChange}
+                      placeholder="Ex: 50000"
+                      className="block w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300"
+                    />
+                  </div>
+                )}
+
+                <div className="flex items-center">
+                  <input
+                    id="wants_to_raise_funds"
+                    name="wants_to_raise_funds"
+                    type="checkbox"
+                    checked={formData.wants_to_raise_funds}
+                    onChange={(e) => setFormData({...formData, wants_to_raise_funds: e.target.checked})}
+                    className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300 rounded"
+                  />
+                  <label htmlFor="wants_to_raise_funds" className="ml-3 block text-sm text-slate-700">
+                    Souhaitez-vous lever des fonds ?
+                  </label>
+                </div>
+
+                {formData.wants_to_raise_funds && (
+                  <div>
+                    <label className="block text-sm text-slate-700 mb-1">
+                      Montant recherché (€)
+                    </label>
+                    <input
+                      type="number"
+                      name="desired_funding_amount"
+                      value={formData.desired_funding_amount}
+                      onChange={handleChange}
+                      placeholder="Ex: 100000"
+                      className="block w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      
+      default:
+        return null;
+    }
   };
 
   return (
@@ -149,7 +365,7 @@ export default function SignupVerify() {
                     <div className="relative z-10">
                       <img
                         className="h-16 w-auto filter brightness-110 drop-shadow-lg"
-                        src="/app/assets/images/logo_nuku.webp"
+                        src="public/images/logo_nuku.webp"
                         alt="NUKU"
                       />
                     </div>
@@ -172,95 +388,92 @@ export default function SignupVerify() {
               Vérifiez votre email et complétez votre profil pour rejoindre la communauté NUKU
             </p>
             
-            {/* Étapes de progression */}
-            <div className="flex justify-center space-x-8 text-slate-400">
-              <div className="text-center group">
-                <div className="w-12 h-12 bg-teal-500/30 rounded-lg flex items-center justify-center mb-2 mx-auto transition-all duration-300">
-                  <svg className="w-6 h-6 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            {/* Indicateur d'étapes */}
+            <div className="flex items-center justify-center space-x-4 mb-8">
+              <div className="flex items-center space-x-2 text-teal-400">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center border-2 border-teal-400 bg-teal-400/20 transition-all duration-300">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <span className="text-sm text-teal-300">Inscription</span>
+                <span className="text-sm font-medium">Informations personnelles</span>
               </div>
-              <div className="text-center group">
-                <div className="w-12 h-12 bg-green-500/20 rounded-lg flex items-center justify-center mb-2 mx-auto group-hover:bg-green-500/30 transition-all duration-300 group-hover:scale-110">
-                  <svg className="w-6 h-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
-                  </svg>
+              
+              <div className="w-8 h-0.5 bg-teal-400 transition-all duration-300"></div>
+              
+              <div className="flex items-center space-x-2 text-teal-400">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center border-2 border-teal-400 bg-teal-400/20 transition-all duration-300">
+                  <span className="text-sm font-semibold">2</span>
                 </div>
-                <span className="text-sm group-hover:text-green-300 transition-colors">Vérification</span>
-              </div>
-              <div className="text-center group">
-                <div className="w-12 h-12 bg-slate-500/20 rounded-lg flex items-center justify-center mb-2 mx-auto group-hover:bg-slate-400/30 transition-all duration-300 group-hover:scale-110">
-                  <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-                <span className="text-sm group-hover:text-slate-300 transition-colors">Démarrage</span>
+                <span className="text-sm font-medium">Vérification & Entreprise</span>
               </div>
             </div>
           </div>
         </div>
 
         {/* Section droite - Formulaire */}
-        <div className="w-full lg:w-1/2 flex items-center justify-center p-8 lg:p-12">
-          <div className="w-full max-w-md">
+        <div className="w-full lg:w-1/2 flex items-start justify-center p-6 lg:p-8 overflow-y-auto">
+          <div className="w-full max-w-lg py-8">
             
             {/* Logo mobile */}
-            <div className="lg:hidden text-center mb-8">
-              <div className="inline-flex items-center justify-center mb-6">
+            <div className="lg:hidden text-center mb-6">
+              <div className="inline-flex items-center justify-center mb-4">
                 <div className="relative group">
                   <div className="absolute inset-0 bg-gradient-to-r from-teal-400 to-green-400 rounded-2xl blur-lg opacity-20 group-hover:opacity-30 transition-all duration-500"></div>
                   
-                  <div className="relative bg-white/80 backdrop-blur-sm border border-white/50 rounded-2xl p-6 shadow-xl group-hover:shadow-2xl transition-all duration-300">
+                  <div className="relative bg-white/80 backdrop-blur-sm border border-white/50 rounded-2xl p-4 shadow-xl group-hover:shadow-2xl transition-all duration-300">
                     <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent rounded-2xl"></div>
                     <img
-                      className="relative z-10 h-12 w-auto"
-                      src="/app/assets/images/logo_nuku.webp"
+                      className="relative z-10 h-10 w-auto"
+                      src="public/images/logo_nuku.webp"
                       alt="NUKU"
                     />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Indicateur d'étapes mobile */}
+              <div className="flex items-center justify-center space-x-3 mb-6">
+                <div className="flex items-center space-x-2 text-teal-600">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center border-2 border-teal-600 bg-teal-100 transition-all duration-300">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                </div>
+                
+                <div className="w-6 h-0.5 bg-teal-600 transition-all duration-300"></div>
+                
+                <div className="flex items-center space-x-2 text-teal-600">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center border-2 border-teal-600 bg-teal-100 transition-all duration-300">
+                    <span className="text-xs font-semibold">2</span>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Carte du formulaire */}
-            <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-white/50 p-8 lg:p-10">
+            <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-white/50 p-6 lg:p-8">
               
               {/* En-tête */}
-              <div className="text-center mb-8">
-                <h2 className="text-3xl font-bold text-slate-800 mb-3">
+              <div className="text-center mb-6">
+                <h2 className="text-2xl lg:text-3xl font-bold text-slate-800 mb-2">
                   Vérifiez votre email
                 </h2>
-                <p className="text-slate-600 text-lg">
+                <p className="text-slate-600">
                   Un code de vérification a été envoyé à
                 </p>
-                <p className="text-teal-600 font-semibold text-lg mt-1">
+                <p className="text-teal-600 font-semibold mt-1">
                   {email}
                 </p>
               </div>
 
-              {/* Messages de succès/erreur */}
-              {actionData?.success && (
-                <div className="mb-6 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200/50 rounded-2xl p-4">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <div className="ml-3">
-                      <p className="text-green-800 font-medium">{actionData.success}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
+              {/* Message d'erreur */}
               {actionData?.error && (
                 <div className="mb-6 bg-gradient-to-r from-red-50 to-rose-50 border border-red-200/50 rounded-2xl p-4">
                   <div className="flex items-center">
                     <div className="flex-shrink-0">
-                      <svg className="h-6 w-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     </div>
@@ -272,9 +485,13 @@ export default function SignupVerify() {
               )}
 
               {/* Formulaire */}
-              <div className="space-y-6">
-                
+              <Form method="post" className="space-y-6" onSubmit={handleSubmit}>
+                {/* Champs cachés pour les données utilisateur */}
                 <input type="hidden" name="email" value={email} />
+                <input type="hidden" name="first_name" value={userData.first_name} />
+                <input type="hidden" name="last_name" value={userData.last_name} />
+                <input type="hidden" name="phone" value={userData.phone} />
+                <input type="hidden" name="password" value={userData.password} />
                 
                 {/* Code OTP */}
                 <div>
@@ -323,7 +540,7 @@ export default function SignupVerify() {
                 {/* Informations de l'entreprise */}
                 <div className="bg-gradient-to-r from-slate-50 to-teal-50 rounded-2xl p-6 border border-slate-100">
                   <h3 className="text-lg font-semibold text-slate-800 mb-4">
-                    Complétez votre profil
+                    Informations sur votre entreprise
                   </h3>
                   
                   <div className="space-y-4">
@@ -345,17 +562,17 @@ export default function SignupVerify() {
 
                     <div>
                       <label htmlFor="industry_sector" className="block text-sm font-semibold text-slate-700 mb-2">
-                        Secteur d'activité *
+                        Secteur d'activité
                       </label>
                       <select
                         id="industry_sector"
                         name="industry_sector"
-                        required
                         value={formData.industry_sector}
                         onChange={handleChange}
                         className="block w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-4 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300"
                       >
                         <option value="">Sélectionnez un secteur</option>
+                        <option value="Agroalimentaire">Agroalimentaire</option>
                         <option value="technology">Technologie</option>
                         <option value="healthcare">Santé</option>
                         <option value="education">Éducation</option>
@@ -403,97 +620,120 @@ export default function SignupVerify() {
                       />
                     </div>
 
-                    {/* Statut de l'entreprise */}
+                    {/* Niveau de maturité */}
                     <div className="space-y-3">
                       <span className="block text-sm font-semibold text-slate-700">
-                        Statut de votre entreprise *
+                        À quel stade est votre entreprise ? *
                       </span>
                       
                       <div className="space-y-3">
-                        <div className="flex items-center">
-                          <input
-                            id="company_not_created"
-                            name="company_not_created"
-                            type="checkbox"
-                            checked={formData.company_not_created}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setFormData({
-                                  ...formData,
-                                  company_not_created: true,
-                                  company_recently_created: false,
-                                  company_established: false,
-                                });
-                              } else {
-                                setFormData({...formData, company_not_created: false});
-                              }
-                            }}
-                            className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300 rounded"
-                          />
-                          <label htmlFor="company_not_created" className="ml-3 block text-sm text-slate-900 font-medium">
-                            💡 Entreprise pas encore créée
-                          </label>
+                        <div 
+                          className={`relative p-3 rounded-xl border-2 cursor-pointer transition-all duration-300 ${
+                            formData.company_maturity === 'not_created' 
+                              ? 'border-teal-400 bg-teal-50' 
+                              : 'border-slate-200 bg-white hover:border-teal-200'
+                          }`}
+                          onClick={() => handleMaturityChange('not_created')}
+                        >
+                          <div className="flex items-center">
+                            <input
+                              type="radio"
+                              name="company_maturity"
+                              value="not_created"
+                              checked={formData.company_maturity === 'not_created'}
+                              onChange={(e) => handleMaturityChange(e.target.value)}
+                              className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300"
+                            />
+                            <div className="ml-3">
+                              <label className="block text-sm font-medium text-slate-800 cursor-pointer">
+                                💡 Idée / Projet en développement
+                              </label>
+                              <p className="text-xs text-slate-600 mt-1">
+                                Vous avez une idée d'entreprise mais elle n'est pas encore créée juridiquement
+                              </p>
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="flex items-center">
-                          <input
-                            id="company_recently_created"
-                            name="company_recently_created"
-                            type="checkbox"
-                            checked={formData.company_recently_created}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setFormData({
-                                  ...formData,
-                                  company_not_created: false,
-                                  company_recently_created: true,
-                                  company_established: false,
-                                });
-                              } else {
-                                setFormData({...formData, company_recently_created: false});
-                              }
-                            }}
-                            className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300 rounded"
-                          />
-                          <label htmlFor="company_recently_created" className="ml-3 block text-sm text-slate-900 font-medium">
-                            🚀 Entreprise récemment créée (moins d'1 an)
-                          </label>
+                        <div 
+                          className={`relative p-3 rounded-xl border-2 cursor-pointer transition-all duration-300 ${
+                            formData.company_maturity === 'recently_created' 
+                              ? 'border-teal-400 bg-teal-50' 
+                              : 'border-slate-200 bg-white hover:border-teal-200'
+                          }`}
+                          onClick={() => handleMaturityChange('recently_created')}
+                        >
+                          <div className="flex items-center">
+                            <input
+                              type="radio"
+                              name="company_maturity"
+                              value="recently_created"
+                              checked={formData.company_maturity === 'recently_created'}
+                              onChange={(e) => handleMaturityChange(e.target.value)}
+                              className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300"
+                            />
+                            <div className="ml-3">
+                              <label className="block text-sm font-medium text-slate-800 cursor-pointer">
+                                🚀 Startup récente (moins d'1 an)
+                              </label>
+                              <p className="text-xs text-slate-600 mt-1">
+                                Votre entreprise est créée récemment et vous développez votre activité
+                              </p>
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="flex items-center">
-                          <input
-                            id="company_established"
-                            name="company_established"
-                            type="checkbox"
-                            checked={formData.company_established}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setFormData({
-                                  ...formData,
-                                  company_not_created: false,
-                                  company_recently_created: false,
-                                  company_established: true,
-                                });
-                              } else {
-                                setFormData({...formData, company_established: false});
-                              }
-                            }}
-                            className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300 rounded"
-                          />
-                          <label htmlFor="company_established" className="ml-3 block text-sm text-slate-900 font-medium">
-                            🏢 Entreprise établie (plus d'1 an)
-                          </label>
+                        <div 
+                          className={`relative p-3 rounded-xl border-2 cursor-pointer transition-all duration-300 ${
+                            formData.company_maturity === 'established' 
+                              ? 'border-teal-400 bg-teal-50' 
+                              : 'border-slate-200 bg-white hover:border-teal-200'
+                          }`}
+                          onClick={() => handleMaturityChange('established')}
+                        >
+                          <div className="flex items-center">
+                            <input
+                              type="radio"
+                              name="company_maturity"
+                              value="established"
+                              checked={formData.company_maturity === 'established'}
+                              onChange={(e) => handleMaturityChange(e.target.value)}
+                              className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300"
+                            />
+                            <div className="ml-3">
+                              <label className="block text-sm font-medium text-slate-800 cursor-pointer">
+                                🏢 Entreprise établie (plus d'1 an)
+                              </label>
+                              <p className="text-xs text-slate-600 mt-1">
+                                Votre entreprise existe depuis plus d'un an et génère du chiffre d'affaires
+                              </p>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
+
+                    {/* Champs cachés pour les valeurs booléennes */}
+                    <input type="hidden" name="company_not_created" value={formData.company_maturity === 'not_created' ? 'true' : 'false'} />
+                    <input type="hidden" name="company_recently_created" value={formData.company_maturity === 'recently_created' ? 'true' : 'false'} />
+                    <input type="hidden" name="company_established" value={formData.company_maturity === 'established' ? 'true' : 'false'} />
                   </div>
                 </div>
+
+                {/* Champs conditionnels selon la maturité */}
+                {formData.company_maturity && formData.company_maturity !== 'not_created' && (
+                  <div className="bg-white/50 rounded-2xl p-6 border border-slate-100">
+                    <h4 className="text-base font-semibold text-slate-800 mb-4">
+                      Informations complémentaires
+                    </h4>
+                    {getMaturityFields()}
+                  </div>
+                )}
 
                 {/* Bouton de soumission */}
                 <button
                   type="submit"
-                  onClick={handleSubmit}
-                  disabled={isLoading || !otpCode || otpCode.length !== 6}
+                  disabled={isLoading || !otpCode || otpCode.length !== 6 || !formData.company_name || !formData.company_maturity}
                   className="group relative w-full flex justify-center items-center py-4 px-6 border border-transparent text-base font-semibold rounded-xl text-white bg-gradient-to-r from-slate-700 to-teal-600 hover:from-slate-800 hover:to-teal-700 focus:outline-none focus:ring-4 focus:ring-teal-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-[1.02] mt-8"
                 >
                   {isLoading ? (
@@ -526,7 +766,7 @@ export default function SignupVerify() {
                     Retour à la connexion
                   </a>
                 </div>
-              </div>
+              </Form>
             </div>
           </div>
         </div>

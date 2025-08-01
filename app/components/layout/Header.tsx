@@ -5,7 +5,7 @@ export function Header() {
         {/* Logo */}
         <div className="flex items-center">
           <img
-            src="/app/assets/images/logo_nuku.webp"
+            src="public/images/logo_nuku.webp"
             alt="NUKU Logo"
             className="h-14 w-auto"
           />

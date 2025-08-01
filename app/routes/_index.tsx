@@ -38,7 +38,7 @@ const Header = () => {
         {/* Logo */}
         <div className="flex items-center">
           <img
-            src="/app/assets/images/logo_nuku.webp"
+            src="public/images/logo_nuku.webp"
             alt="NUKU Logo"
             className="h-8 w-auto"
           />
@@ -150,7 +150,7 @@ const HeroSection = () => {
 
       <div className="lg:w-1/2">
         <img
-          src="/app/assets/images/banner_hero.webp"
+          src="public/images/banner_hero.webp"
           alt="Équipe NUKU en collaboration"
           className="w-full h-80 lg:h-96 object-cover rounded-lg shadow-lg transform hover:scale-105 transition-transform duration-500"
         />
@@ -265,7 +265,7 @@ const SavoirFaireSection = ({ isVisible }) => {
             title="Apprenez"
             subtitle="où que vous soyez"
             description="Accédez à votre formation 100% en ligne au bureau, à la maison, en ville, à la montagne... Partout !"
-            imageSrc="/app/assets/images/icone_apprendre_en_ligne.webp"
+            imageSrc="public/images/icone_apprendre_en_ligne.webp"
             imageAlt="Apprentissage en ligne partout"
           />
 
@@ -273,7 +273,7 @@ const SavoirFaireSection = ({ isVisible }) => {
             title="Un mentor"
             subtitle="pour vous accompagner"
             description="Bénéficiez des conseils d'un expert du métier qui vous aide à progresser tout au long de votre formation."
-            imageSrc="/app/assets/images/icone_mentor.webp"
+            imageSrc="public/images/icone_mentor.webp"
             imageAlt="Mentor pour accompagnement"
           />
 
@@ -281,7 +281,7 @@ const SavoirFaireSection = ({ isVisible }) => {
             title="Travaillez sur"
             subtitle="des projets professionnalisants"
             description="Réalisez des projets concrets, issus de scénarios métiers, directement applicables dans le monde du travail."
-            imageSrc="/app/assets/images/icone_projets.webp"
+            imageSrc="public/images/icone_projets.webp"
             imageAlt="Projets professionnalisants"
           />
         </div>
@@ -519,7 +519,7 @@ const Footer = () => {
           {/* Logo et description */}
           <div className="col-span-1">
             <img
-              src="/app/assets/images/logo_nuku.webp"
+              src="public/images/logo_nuku.webp"
               alt="NUKU Logo"
               className="h-8 w-auto mb-4 filter invert"
             />
