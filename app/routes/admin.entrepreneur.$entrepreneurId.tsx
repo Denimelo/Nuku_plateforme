@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
-import { json } from "@remix-run/node";
+import { json, redirect } from "@remix-run/node";
 import { useLoaderData, useActionData, Form, useNavigate } from "@remix-run/react";
 import { Layout } from "~/components/layout/Layout";
 import { requireAdmin } from "~/utils/auth.server";
@@ -74,6 +74,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   try {
     let response;
+    
     switch (actionType) {
       case "validate":
         response = await fetch(`${API_BASE_URL}/admin/entrepreneurs/${entrepreneurId}/validate`, {
@@ -83,28 +84,43 @@ export async function action({ request, params }: ActionFunctionArgs) {
             "Content-Type": "application/json"
           }
         });
-        if (!response.ok) throw new Error("Échec de la validation");
-        return redirect("/admin/entrepreneurs"); // Redirection après succès
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || "Échec de la validation");
+        }
+        
+        // Redirection vers la liste avec message de succès
+        return redirect("/admin/entrepreneurs?success=entrepreneur_validated");
 
       case "reject":
+        const reason = formData.get("reason") as string || "Candidature rejetée par l'administration";
+        
         response = await fetch(`${API_BASE_URL}/admin/entrepreneurs/${entrepreneurId}/reject`, {
           method: "PUT",
           headers: { 
             Authorization: `Bearer ${session.token}`,
             "Content-Type": "application/json"
-          }
+          },
+          body: JSON.stringify({ reason })
         });
-        if (!response.ok) throw new Error("Échec du rejet");
-        return redirect("/admin/entrepreneurs"); // Redirection après succès
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || "Échec du rejet");
+        }
+        
+        // Redirection vers la liste avec message de succès
+        return redirect("/admin/entrepreneurs?success=entrepreneur_rejected");
 
       default:
         return json({ error: "Action non reconnue" }, { status: 400 });
     }
   } catch (error: any) {
+    console.error("Erreur action entrepreneur:", error);
     return json({ 
-      error: error.message || "Erreur lors de l'action",
-      status: 400 
-    });
+      error: error.message || "Erreur lors de l'action"
+    }, { status: 400 });
   }
 }
 
@@ -446,7 +462,7 @@ export default function AdminEntrepreneurDetail() {
       {showActionModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="mt-3 text-center">
+            <div className="mt-3">
               <div className={`mx-auto flex items-center justify-center h-12 w-12 rounded-full ${
                 showActionModal === "validate" ? "bg-green-100" : "bg-red-100"
               }`}>
@@ -456,29 +472,47 @@ export default function AdminEntrepreneurDetail() {
                   <ThumbsDown className="h-6 w-6 text-red-600" />
                 )}
               </div>
-              <h3 className="text-lg font-medium text-gray-900 mt-2">
+              <h3 className="text-lg font-medium text-gray-900 mt-2 text-center">
                 {showActionModal === "validate" ? "Approuver l'entrepreneur" : "Rejeter la candidature"}
               </h3>
-              <div className="mt-2 px-7 py-3">
-                <p className="text-sm text-gray-500">
-                  {showActionModal === "validate" 
-                    ? `Êtes-vous sûr de vouloir approuver la candidature de ${entrepreneur.user?.first_name} ${entrepreneur.user?.last_name} pour ${entrepreneur.company_name} ? Un email de validation sera envoyé.`
-                    : `Êtes-vous sûr de vouloir rejeter la candidature de ${entrepreneur.user?.first_name} ${entrepreneur.user?.last_name} ? Un email de notification sera envoyé.`
-                  }
-                </p>
-              </div>
-              <div className="flex justify-center space-x-4 px-4 py-3">
-                <button
-                  onClick={() => setShowActionModal(null)}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
-                >
-                  Annuler
-                </button>
-                <Form method="post">
-                  <input type="hidden" name="action" value={showActionModal} />
+              
+              <Form method="post" className="mt-4">
+                <input type="hidden" name="action" value={showActionModal} />
+                
+                <div className="px-7 py-3">
+                  <p className="text-sm text-gray-500 mb-4">
+                    {showActionModal === "validate" 
+                      ? `Êtes-vous sûr de vouloir approuver la candidature de ${entrepreneur.user?.first_name} ${entrepreneur.user?.last_name} pour ${entrepreneur.company_name} ? Un email de validation sera envoyé.`
+                      : `Êtes-vous sûr de vouloir rejeter la candidature de ${entrepreneur.user?.first_name} ${entrepreneur.user?.last_name} ?`
+                    }
+                  </p>
+                  
+                  {/* Champ de raison pour le rejet */}
+                  {showActionModal === "reject" && (
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Raison du rejet (optionnel)
+                      </label>
+                      <textarea
+                        name="reason"
+                        rows={3}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                        placeholder="Expliquez pourquoi cette candidature est rejetée..."
+                      />
+                    </div>
+                  )}
+                </div>
+                
+                <div className="flex justify-center space-x-4 px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowActionModal(null)}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
+                  >
+                    Annuler
+                  </button>
                   <button
                     type="submit"
-                    onClick={() => setShowActionModal(null)}
                     className={`px-4 py-2 rounded-md text-white ${
                       showActionModal === "validate"
                         ? "bg-green-600 hover:bg-green-700"
@@ -487,8 +521,8 @@ export default function AdminEntrepreneurDetail() {
                   >
                     {showActionModal === "validate" ? "Approuver" : "Rejeter"}
                   </button>
-                </Form>
-              </div>
+                </div>
+              </Form>
             </div>
           </div>
         </div>

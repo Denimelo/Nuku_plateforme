@@ -1,70 +1,77 @@
-import { 
-  TrendingUp, 
-  Users, 
-  Shield, 
-  BookOpen, 
-  FileText, 
-  Calendar, 
-  BarChart3, 
+import {
+  TrendingUp,
+  Users,
+  Shield,
+  BookOpen,
+  FileText,
+  Calendar,
+  BarChart3,
   Settings,
-  UserCheck
+  UserCheck,
+  MessageCircle,
 } from "lucide-react";
 
 export function getAdminNavigation(currentPath: string) {
   return [
-    { 
-      name: "Tableau de bord", 
-      href: "/admin/dashboard", 
-      icon: TrendingUp, 
-      current: currentPath === "/admin" 
+    {
+      name: "Tableau de bord",
+      href: "/admin/dashboard",
+      icon: TrendingUp,
+      current: currentPath === "/admin",
     },
-    { 
-      name: "Utilisateurs", 
-      href: "/admin/users", 
+    {
+      name: "Utilisateurs",
+      href: "/admin/users",
       icon: Users,
-      current: currentPath.startsWith("/admin/users")
+      current: currentPath.startsWith("/admin/users"),
     },
-    { 
-      name: "Entrepreneurs", 
-      href: "/admin/entrepreneurs", 
+    {
+      name: "Entrepreneurs",
+      href: "/admin/entrepreneurs",
       icon: UserCheck,
-      current: currentPath.startsWith("/admin/entrepreneurs")
+      current: currentPath.startsWith("/admin/entrepreneurs"),
     },
-    { 
-      name: "Experts", 
-      href: "/admin/experts", 
+    {
+      name: "Experts",
+      href: "/admin/experts",
       icon: Shield,
-      current: currentPath.startsWith("/admin/experts")
+      current: currentPath.startsWith("/admin/experts"),
     },
-    { 
-      name: "Programmes", 
-      href: "/admin/programs", 
+    {
+      name: "Programmes",
+      href: "/admin/programs",
       icon: BookOpen,
-      current: currentPath.startsWith("/admin/programs")
+      current: currentPath.startsWith("/admin/programs"),
     },
-    { 
-      name: "Modules", 
-      href: "/admin/modules", 
-      icon: FileText,
-      current: currentPath.startsWith("/admin/modules")
+    {
+      name: "Inscriptions",
+      href: "/admin/program/enrollments",
+      icon: UserCheck,
+      current: currentPath.startsWith("/admin/program/enrollments"),
     },
-    { 
-      name: "Appels", 
-      href: "/admin/calls", 
+    {
+      name: "Appels",
+      href: "/admin/calls",
       icon: Calendar,
-      current: currentPath.startsWith("/admin/calls")
+      current: currentPath.startsWith("/admin/calls"),
     },
-    { 
-      name: "Rapports", 
-      href: "/admin/reports", 
+    {
+      name: "Messages",
+      href: "/messages",
+      icon: MessageCircle, // J'ai remplacé Users par MessageCircle pour plus de cohérence
+      current: currentPath.startsWith("/messages"),
+    },
+    {
+      name: "Rapports",
+      href: "/admin/reports",
       icon: BarChart3,
-      current: currentPath.startsWith("/admin/reports")
+      current: currentPath.startsWith("/admin/reports"),
     },
-    { 
-      name: "Paramètres", 
-      href: "/admin/settings", 
+    {
+      name: "Paramètres",
+      href: "/admin/settings",
       icon: Settings,
-      current: currentPath.startsWith("/admin/settings")
+      current: currentPath.startsWith("/admin/settings"),
     },
   ];
 }

@@ -35,7 +35,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   try {
     // Récupérer les vraies données via l'API admin
-    const [usersData, expertsData, entrepreneursData] = await Promise.all([
+    const [usersData, expertsData, entrepreneursData, programsData] = await Promise.all([
       fetch(`${API_BASE_URL}/admin/users`, {
         headers: { Authorization: `Bearer ${session.token}` }
       }).then(res => res.ok ? res.json() : []),
@@ -45,21 +45,34 @@ export async function loader({ request }: LoaderFunctionArgs) {
       fetch(`${API_BASE_URL}/admin/entrepreneurs`, {
         headers: { Authorization: `Bearer ${session.token}` }
       }).then(res => res.ok ? res.json() : []),
-    ]);
+      fetch(`${API_BASE_URL}/programs/?active_only=false`, {
+        headers: { Authorization: `Bearer ${session.token}` }
+      }).then(res => res.ok ? res.json() : []),
+  ]);
 
     // Calculer les statistiques réelles
     const adminStats = {
       totalUsers: usersData.length,
       pendingUsers: entrepreneursData.filter((e: any) => e.validation_status === 'pending').length,
-      totalPrograms: 8, // À remplacer quand l'endpoint sera disponible
-      activePrograms: 5,
+      totalPrograms: programsData.length,
+      activePrograms: programsData.filter((p: any) => p.is_active).length,
+      upcomingPrograms: programsData.filter((p: any) => {
+        const startDate = new Date(p.start_date);
+        return startDate > new Date() && p.is_active;
+      }).length,
+      ongoingPrograms: programsData.filter((p: any) => {
+        const now = new Date();
+        const startDate = new Date(p.start_date);
+        const endDate = new Date(p.end_date);
+        return startDate <= now && endDate >= now && p.is_active;
+      }).length,
       totalModules: 45, // À remplacer quand l'endpoint sera disponible
       totalCalls: 230, // À remplacer quand l'endpoint sera disponible
       thisWeekCalls: 18,
-      activeExperts: expertsData.length,
+      activeExperts: expertsData.filter((e: any) => e.is_active).length,
       approvedEntrepreneurs: entrepreneursData.filter((e: any) => e.validation_status === 'approved').length,
       rejectedEntrepreneurs: entrepreneursData.filter((e: any) => e.validation_status === 'rejected').length,
-    };
+    };            
 
     // Activité récente basée sur les vraies données
     const recentActivity = [
@@ -93,6 +106,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
       totalModules: 0,
       totalCalls: 0,
       thisWeekCalls: 0,
+      ongoingPrograms: 0,
+      upcomingPrograms: 0,
       activeExperts: 0,
       approvedEntrepreneurs: 0,
       rejectedEntrepreneurs: 0,
@@ -158,12 +173,12 @@ export default function AdminDashboard() {
           urgent={adminStats.pendingUsers > 0}
         />
         <StatCard
-          title="Programmes actifs"
+          title="Programmes"
           value={adminStats.activePrograms}
-          subtitle={`sur ${adminStats.totalPrograms} total`}
+          subtitle={`${adminStats.ongoingPrograms} en cours, ${adminStats.upcomingPrograms} à venir`}
           icon={BookOpen}
           color="green"
-          trend="+2 nouveaux"
+          trend={`${adminStats.totalPrograms} total`}
         />
         <StatCard
           title="Experts actifs"
@@ -196,9 +211,9 @@ export default function AdminDashboard() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 <QuickActionCard
-                  title="Valider utilisateurs"
+                  title="Valider entrepreneurs"
                   description={`${adminStats.pendingUsers} en attente`}
-                  href="/admin/users?filter=pending"
+                  href="/admin/entrepreneurs?filter=pending"
                   icon={UserPlus}
                   color="blue"
                   urgent={adminStats.pendingUsers > 0}
@@ -211,10 +226,10 @@ export default function AdminDashboard() {
                   color="green"
                 />
                 <QuickActionCard
-                  title="Analytics"
-                  description="Performances détaillées"
-                  href="/admin/reports"
-                  icon={BarChart3}
+                  title="Gérer programmes"
+                  description={`${adminStats.activePrograms} actifs`}
+                  href="/admin/programs"
+                  icon={BookOpen}
                   color="purple"
                 />
                 <QuickActionCard
@@ -225,11 +240,11 @@ export default function AdminDashboard() {
                   color="orange"
                 />
                 <QuickActionCard
-                  title="Modérer contenu"
-                  description="Modules en attente"
-                  href="/admin/modules?filter=pending"
-                  icon={FileText}
-                  color="red"
+                  title="Analytics"
+                  description="Performances détaillées"
+                  href="/admin/reports"
+                  icon={BarChart3}
+                  color="purple"
                 />
                 <QuickActionCard
                   title="Paramètres"
@@ -390,6 +405,7 @@ function QuickActionCard({ title, description, href, icon: Icon, color, urgent =
     green: "from-green-500 to-green-600 text-green-600 bg-green-50",
     purple: "from-purple-500 to-purple-600 text-purple-600 bg-purple-50",
     orange: "from-orange-500 to-orange-600 text-orange-600 bg-orange-50",
+    teal: "from-teal-500 to-teal-600 text-teal-600 bg-teal-50", // Ajouter cette ligne
     red: "from-red-500 to-red-600 text-red-600 bg-red-50",
     slate: "from-slate-500 to-slate-600 text-slate-600 bg-slate-50",
   };

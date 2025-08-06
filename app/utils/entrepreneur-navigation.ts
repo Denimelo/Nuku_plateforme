@@ -11,9 +11,9 @@ export function getEntrepreneurNavigation(currentPath: string) {
   return [
     { 
       name: "Tableau de bord", 
-      href: "/entrepreneur", 
+      href: "/entrepreneur/dashboard", 
       icon: TrendingUp, 
-      current: currentPath === "/entrepreneur" 
+      current: currentPath === "/entrepreneur/dashboard" 
     },
     { 
       name: "Formations", 
@@ -41,9 +41,9 @@ export function getEntrepreneurNavigation(currentPath: string) {
     },
     { 
       name: "Messages", 
-      href: "/entrepreneur/messages", 
+      href: "/messages", 
       icon: MessageCircle, // J'ai remplacé Users par MessageCircle pour plus de cohérence
-      current: currentPath.startsWith("/entrepreneur/messages")
+      current: currentPath.startsWith("/messages")
     },
   ];
 }

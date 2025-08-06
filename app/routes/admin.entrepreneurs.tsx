@@ -131,6 +131,8 @@ export default function AdminEntrepreneurs() {
   const { user, entrepreneurs, filter, search, stats } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const location = useLocation();
+  const urlParams = new URLSearchParams(location.search);
+  const successMessage = urlParams.get('success');
   const [showValidationModal, setShowValidationModal] = useState<{entrepreneur: any, action: string} | null>(null);
   const [selectedEntrepreneurs, setSelectedEntrepreneurs] = useState<string[]>([]);
 
@@ -291,6 +293,28 @@ export default function AdminEntrepreneurs() {
           </div>
         </div>
       </div>
+
+      {successMessage === 'entrepreneur_validated' && (
+        <div className="mb-6 rounded-2xl bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 p-4">
+          <div className="flex">
+            <CheckCircle className="h-5 w-5 text-green-400" />
+            <div className="ml-3">
+              <p className="text-sm text-green-700">Entrepreneur approuvé avec succès !</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {successMessage === 'entrepreneur_rejected' && (
+        <div className="mb-6 rounded-2xl bg-gradient-to-r from-red-50 to-rose-50 border border-red-200 p-4">
+          <div className="flex">
+            <XCircle className="h-5 w-5 text-red-400" />
+            <div className="ml-3">
+              <p className="text-sm text-red-700">Candidature rejetée avec succès.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Messages de retour */}
       {actionData?.success && (

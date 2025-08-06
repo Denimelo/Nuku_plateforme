@@ -1,9 +1,12 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { useLoaderData, useNavigate, useLocation } from "@remix-run/react";
+import { useState } from "react";
 import { Layout } from "~/components/layout/Layout";
 import { requireAdmin } from "~/utils/auth.server";
 import { getAdminNavigation } from "~/utils/admin-navigation";
+import  AssignExpertModal  from "~/components/AssignExpertModal";
+import ParticipantActionsDropdown from "~/components/ParticipantActionsDropdown";
 import { getUserSession } from "~/utils/session.server";
 import { 
   ArrowLeft,
@@ -22,7 +25,10 @@ import {
   Settings,
   FileText,
   Award,
-  Zap
+  Zap,
+  Shield,
+  UserPlus,
+  MoreVertical
 } from "lucide-react";
 
 const API_BASE_URL = "https://nuku-api.onrender.com/api/v1";
@@ -42,7 +48,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 
   try {
     // Récupérer les détails du programme
-    const [programData, participantsData, statsData] = await Promise.all([
+    const [programData, participantsData, statsData, expertsData] = await Promise.all([
       fetch(`${API_BASE_URL}/programs/${programId}`, {
         headers: { Authorization: `Bearer ${session.token}` }
       }).then(res => {
@@ -62,14 +68,23 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       }).then(res => {
         if (!res.ok) return null;
         return res.json();
-      }).catch(() => null)
-    ]);
+      }).catch(() => null),
+
+      fetch(`${API_BASE_URL}/programs/${programId}/experts`, {
+          headers: { Authorization: `Bearer ${session.token}` }
+        }).then(res => {
+          if (!res.ok) return [];
+          return res.json();
+        }).catch(() => [])
+      ]);
 
     return json({ 
       user, 
       program: programData,
       participants: participantsData,
       stats: statsData,
+      assignedExperts: expertsData,
+      session,
       programId
     });
   } catch (error) {
@@ -79,7 +94,9 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 }
 
 export default function AdminProgramDetails() {
-  const { user, program, participants, stats } = useLoaderData<typeof loader>();
+  const { user, program, participants, assignedExperts, stats, session } = useLoaderData<typeof loader>();
+  const [showAssignExpertModal, setShowAssignExpertModal] = useState(false);
+
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -297,61 +314,233 @@ export default function AdminProgramDetails() {
             </div>
           )}
 
-          {/* Liste des participants */}
+          {/* Section Experts Assignés - À ajouter après les statistiques */}
           <div className="mt-8 bg-white/80 backdrop-blur-sm shadow-xl rounded-3xl border border-white/50">
             <div className="px-8 py-6 border-b border-gray-200">
-              <h3 className="text-xl font-bold text-gray-900 flex items-center">
-                <UserCheck className="h-6 w-6 mr-2" />
-                Participants ({participants.length})
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-gray-900 flex items-center">
+                  <Shield className="h-6 w-6 mr-2" />
+                  Experts assignés ({assignedExperts.length})
+                </h3>
+                <button
+                  onClick={() => setShowAssignExpertModal(true)}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-2xl text-white bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 transition-all"
+                >
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Assigner un expert
+                </button>
+              </div>
             </div>
+            <div className="p-8">
+              {assignedExperts.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {assignedExperts.map((assignment: any) => (
+                    <div key={assignment.program_expert_id} className="p-4 bg-gradient-to-r from-gray-50 to-slate-50 rounded-2xl hover:shadow-md transition-all">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center space-x-3">
+                          <div className="h-12 w-12 rounded-full bg-gradient-to-r from-purple-400 to-indigo-500 flex items-center justify-center shadow-lg">
+                            <span className="text-sm font-bold text-white">
+                              {assignment.expert?.user?.first_name?.[0]}{assignment.expert?.user?.last_name?.[0]}
+                            </span>
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-gray-900">
+                              {assignment.expert?.user?.first_name} {assignment.expert?.user?.last_name}
+                            </h4>
+                            <p className="text-sm text-purple-600">{assignment.expert?.specialization}</p>
+                          </div>
+                        </div>
+                        <div className="relative">
+                          <button
+                            onClick={() => {/* TODO: Implémenter menu d'actions */}}
+                            className="p-1 rounded-full hover:bg-gray-200 transition-colors"
+                          >
+                            <MoreVertical className="h-4 w-4 text-gray-500" />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-gray-500">Rôle:</span>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            assignment.role === 'mentor' ? 'bg-green-100 text-green-800' :
+                            assignment.role === 'instructor' ? 'bg-blue-100 text-blue-800' :
+                            assignment.role === 'evaluator' ? 'bg-orange-100 text-orange-800' :
+                            assignment.role === 'advisor' ? 'bg-purple-100 text-purple-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {assignment.role === 'mentor' ? 'Mentor' :
+                            assignment.role === 'instructor' ? 'Instructeur' :
+                            assignment.role === 'evaluator' ? 'Évaluateur' :
+                            assignment.role === 'advisor' ? 'Conseiller' :
+                            assignment.role === 'speaker' ? 'Intervenant' : assignment.role}
+                          </span>
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-gray-500">Assigné le:</span>
+                          <span className="text-xs text-gray-700">
+                            {new Date(assignment.assigned_at).toLocaleDateString('fr-FR')}
+                          </span>
+                        </div>
+                        
+                        {assignment.expert?.years_of_experience && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-gray-500">Expérience:</span>
+                            <span className="text-xs text-gray-700">
+                              {assignment.expert.years_of_experience} ans
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Shield className="mx-auto h-16 w-16 text-gray-400 mb-4" />
+                  <h4 className="text-lg font-medium text-gray-900 mb-2">Aucun expert assigné</h4>
+                  <p className="text-gray-500 mb-4">Assignez des experts pour accompagner les participants de ce programme.</p>
+                  <button
+                    onClick={() => setShowAssignExpertModal(true)}
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-2xl text-white bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 transition-all"
+                  >
+                    <UserPlus className="h-4 w-4 mr-2" />
+                    Assigner le premier expert
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Liste des participants avec actions */}
+          <div className="mt-8 bg-white/80 backdrop-blur-sm shadow-xl rounded-3xl border border-white/50">
+            <div className="px-8 py-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-gray-900 flex items-center">
+                  <UserCheck className="h-6 w-6 mr-2" />
+                  Participants ({participants.length})
+                </h3>
+                
+                {/* Filtres rapides par statut */}
+                {participants.length > 0 && (
+                  <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-1 text-xs">
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full font-medium">
+                        {participants.filter(p => p.completion_status === 'in_progress').length} En cours
+                      </span>
+                      <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full font-medium">
+                        {participants.filter(p => p.completion_status === 'completed').length} Terminés
+                      </span>
+                      <span className="px-2 py-1 bg-red-100 text-red-800 rounded-full font-medium">
+                        {participants.filter(p => p.completion_status === 'dropped').length} Abandons
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            
             <div className="p-8">
               {participants.length > 0 ? (
                 <div className="space-y-4">
-                  {participants.slice(0, 10).map((participant: any) => (
-                    <div key={participant.participant_id} className="flex items-center justify-between p-4 bg-gradient-to-r from-gray-50 to-slate-50 rounded-2xl hover:shadow-md transition-all">
+                  {participants.map((participant: any) => (
+                    <div key={participant.participant_id} className="flex items-center justify-between p-6 bg-gradient-to-r from-gray-50 to-slate-50 rounded-2xl hover:shadow-md transition-all group">
                       <div className="flex items-center space-x-4">
-                        <div className="h-12 w-12 rounded-full bg-gradient-to-r from-purple-400 to-indigo-500 flex items-center justify-center shadow-lg">
+                        <div className="h-14 w-14 rounded-full bg-gradient-to-r from-purple-400 to-indigo-500 flex items-center justify-center shadow-lg">
                           <span className="text-sm font-bold text-white">
                             {participant.entrepreneur?.user?.first_name?.[0]}{participant.entrepreneur?.user?.last_name?.[0]}
                           </span>
                         </div>
-                        <div>
-                          <h4 className="font-bold text-gray-900">
+                        <div className="flex-1">
+                          <h4 className="font-bold text-gray-900 text-lg">
                             {participant.entrepreneur?.user?.first_name} {participant.entrepreneur?.user?.last_name}
                           </h4>
-                          <p className="text-sm text-gray-500">{participant.entrepreneur?.company_name}</p>
+                          <p className="text-sm text-gray-600 font-medium">{participant.entrepreneur?.company_name}</p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {participant.entrepreneur?.user?.email}
+                          </p>
+                          <div className="flex items-center space-x-4 mt-2">
+                            <span className="text-xs text-gray-500">
+                              📅 Inscrit le {new Date(participant.enrollment_date).toLocaleDateString('fr-FR')}
+                            </span>
+                            {participant.completion_date && (
+                              <span className="text-xs text-gray-500">
+                                ✅ Terminé le {new Date(participant.completion_date).toLocaleDateString('fr-FR')}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
+                      
                       <div className="flex items-center space-x-4">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          participant.completion_status === 'completed' ? 'bg-green-100 text-green-800' :
-                          participant.completion_status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
-                          {participant.completion_status === 'completed' ? 'Terminé' :
-                           participant.completion_status === 'in_progress' ? 'En cours' : 'Abandonné'}
-                        </span>
-                        <span className="text-sm text-gray-500">
-                          Inscrit le {new Date(participant.enrollment_date).toLocaleDateString('fr-FR')}
-                        </span>
+                        {/* Statut avec icône */}
+                        <div className="text-right">
+                          <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium ${
+                            participant.completion_status === 'completed' ? 'bg-green-100 text-green-800' :
+                            participant.completion_status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                            'bg-red-100 text-red-800'
+                          }`}>
+                            {participant.completion_status === 'completed' && <CheckCircle className="h-3 w-3 mr-1" />}
+                            {participant.completion_status === 'in_progress' && <Clock className="h-3 w-3 mr-1" />}
+                            {participant.completion_status === 'dropped' && <XCircle className="h-3 w-3 mr-1" />}
+                            
+                            {participant.completion_status === 'completed' ? 'Terminé' :
+                            participant.completion_status === 'in_progress' ? 'En cours' : 'Abandonné'}
+                          </span>
+                          
+                          {/* Durée dans le programme */}
+                          <p className="text-xs text-gray-500 mt-1">
+                            {(() => {
+                              const enrollDate = new Date(participant.enrollment_date);
+                              const endDate = participant.completion_date ? new Date(participant.completion_date) : new Date();
+                              const diffTime = Math.abs(endDate.getTime() - enrollDate.getTime());
+                              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                              
+                              if (diffDays === 1) return "1 jour";
+                              if (diffDays < 30) return `${diffDays} jours`;
+                              if (diffDays < 365) {
+                                const months = Math.round(diffDays / 30);
+                                return `${months} mois`;
+                              }
+                              const years = Math.round(diffDays / 365);
+                              return `${years} an${years > 1 ? 's' : ''}`;
+                            })()}
+                          </p>
+                        </div>
+                        
+                        {/* Actions */}
+                        <ParticipantActionsDropdown
+                          participant={participant}
+                          programId={program.program_id}
+                          token={session?.token || ""}
+                          onStatusUpdate={() => {
+                            // Recharger la page pour voir les changements
+                            window.location.reload();
+                          }}
+                        />
                       </div>
                     </div>
                   ))}
                   
                   {participants.length > 10 && (
-                    <div className="text-center pt-4">
-                      <button className="text-purple-600 hover:text-purple-800 font-medium">
+                    <div className="text-center pt-6">
+                      <button className="inline-flex items-center px-6 py-3 border border-purple-300 text-sm font-medium rounded-2xl text-purple-700 bg-purple-50 hover:bg-purple-100 transition-all">
+                        <Users className="h-4 w-4 mr-2" />
                         Voir tous les participants ({participants.length})
                       </button>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="text-center py-12">
-                  <Users className="mx-auto h-16 w-16 text-gray-400 mb-4" />
-                  <h4 className="text-lg font-medium text-gray-900 mb-2">Aucun participant</h4>
-                  <p className="text-gray-500">Ce programme n'a pas encore de participants inscrits.</p>
+                <div className="text-center py-16">
+                  <Users className="mx-auto h-20 w-20 text-gray-300 mb-4" />
+                  <h4 className="text-xl font-medium text-gray-900 mb-2">Aucun participant</h4>
+                  <p className="text-gray-500 max-w-md mx-auto">
+                    Ce programme n'a pas encore de participants inscrits. Les entrepreneurs 
+                    validés peuvent s'inscrire directement depuis la liste des programmes disponibles.
+                  </p>
                 </div>
               )}
             </div>
@@ -480,6 +669,19 @@ export default function AdminProgramDetails() {
           </div>
         </div>
       </div>
+      {/* Modal d'assignation d'expert */}
+      <AssignExpertModal
+        isOpen={showAssignExpertModal}
+        onClose={() => setShowAssignExpertModal(false)}
+        programId={program.program_id}
+        programName={program.name}
+        token={session?.token || ""}
+        assignedExperts={assignedExperts.map((a: any) => a.expert?.expert_id).filter(Boolean)}
+        onSuccess={() => {
+          // Recharger la page pour voir les changements
+          window.location.reload();
+        }}
+      />
     </Layout>
   );
 }

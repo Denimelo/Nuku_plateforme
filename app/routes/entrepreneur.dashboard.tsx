@@ -3,6 +3,7 @@ import { json } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import { Layout } from "~/components/layout/Layout";
 import { requireEntrepreneur } from "~/utils/auth.server";
+import { getEntrepreneurNavigation } from "~/utils/entrepreneur-navigation";
 import { 
   modulesServerAPI, 
   assignmentsServerAPI, 
@@ -64,14 +65,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 export default function EntrepreneurDashboard() {
   const { user, modules, assignments, calls, notifications, programs } = useLoaderData<typeof loader>();
 
-  const navigation = [
-    { name: "Tableau de bord", href: "/entrepreneur", icon: TrendingUp, current: true },
-    { name: "Formations", href: "/entrepreneur/modules", icon: BookOpen },
-    { name: "Devoirs", href: "/entrepreneur/assignments", icon: FileText },
-    { name: "Rendez-vous", href: "/entrepreneur/calls", icon: Calendar },
-    { name: "Programmes", href: "/entrepreneur/programs", icon: Users },
-    { name: "Messages", href: "/entrepreneur/messages", icon: Users },
-  ];
+  const navigation = getEntrepreneurNavigation(location.pathname);
 
   // Calculs pour les statistiques
   const completedModules = modules.filter((module: any) => module.is_completed).length;

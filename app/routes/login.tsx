@@ -128,7 +128,7 @@ export default function Login() {
                     <div className="relative z-10">
                       <img
                         className="h-16 w-auto filter brightness-110 drop-shadow-lg"
-                        src="public/images/logo_nuku.webp"
+                        src="../../public/images/logo_nuku.webp"
                         alt="NUKU"
                       />
                     </div>
@@ -197,7 +197,7 @@ export default function Login() {
                     <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent rounded-2xl"></div>
                     <img
                       className="relative z-10 h-12 w-auto"
-                      src="public/images/logo_nuku.webp"
+                      src="../../public/images/logo_nuku.webp"
                       alt="NUKU"
                     />
                   </div>

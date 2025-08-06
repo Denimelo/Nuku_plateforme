@@ -60,6 +60,45 @@ async function apiCall(endpoint: string, options: ApiOptions = {}) {
   }
 }
 
+// ========== UPLOAD ==========
+async function apiUpload(endpoint: string, formData: FormData, token: string) {
+  const config: RequestInit = {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      // Ne pas définir Content-Type - le navigateur gère automatiquement pour FormData
+    },
+    body: formData,
+  };
+
+  console.log(`Making upload to: ${API_BASE_URL}${endpoint}`);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Upload error response:', errorText);
+      
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { detail: errorText || `HTTP ${response.status}` };
+      }
+      
+      throw new Error(errorData.detail || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('Upload success response:', data);
+    return data;
+  } catch (error) {
+    console.error('Upload error:', error);
+    throw error;
+  }
+}
+
 // ========== TYPES ==========
 interface UserRegistrationData {
   first_name: string;
@@ -418,6 +457,7 @@ export const entrepreneursServerAPI = {
 
 // ========== EXPERTS API SERVER ==========
 export const expertsServerAPI = {
+  // Profil expert
   getProfile: async (token: string) => {
     return apiCall('/expert/me', { token });
   },
@@ -430,6 +470,41 @@ export const expertsServerAPI = {
     });
   },
 
+  // Dashboard expert
+  getDashboard: async (token: string) => {
+    return apiCall('/expert/me/dashboard', { token });
+  },
+
+  getStats: async (token: string) => {
+    return apiCall('/expert/me/stats', { token });
+  },
+
+  // Programmes de l'expert
+  getMyPrograms: async (token: string) => {
+    return apiCall('/expert/me/programs', { token });
+  },
+
+  // Entrepreneurs accompagnés
+  getMyEntrepreneurs: async (token: string) => {
+    return apiCall('/expert/me/entrepreneurs', { token });
+  },
+
+  // Annuaire public
+  getDirectory: async (token: string, specialization?: string, skip: number = 0, limit: number = 20) => {
+    const params = new URLSearchParams({
+      skip: skip.toString(),
+      limit: limit.toString(),
+    });
+    if (specialization) params.append('specialization', specialization);
+    return apiCall(`/expert/directory?${params.toString()}`, { token });
+  },
+
+  // Classement
+  getLeaderboard: async (token: string, limit: number = 10) => {
+    return apiCall(`/expert/leaderboard?limit=${limit}`, { token });
+  },
+
+  // Upload CV
   uploadCV: async (token: string, file: File) => {
     const formData = new FormData();
     formData.append('cv', file);
@@ -444,14 +519,7 @@ export const expertsServerAPI = {
     });
   },
 
-  getExperts: async (token: string) => {
-    return apiCall('/experts/', { token });
-  },
-
-  getExpert: async (token: string, expertId: string) => {
-    return apiCall(`/experts/${expertId}`, { token });
-  },
-
+  // Disponibilités et planning
   getMySchedule: async (token: string) => {
     return apiCall('/expert/me/schedule', { token });
   },
@@ -463,7 +531,85 @@ export const expertsServerAPI = {
       token,
     });
   },
+
+  // Anciens endpoints conservés pour compatibilité
+  getExperts: async (token: string) => {
+    return apiCall('/experts/', { token });
+  },
+
+  getExpert: async (token: string, expertId: string) => {
+    return apiCall(`/experts/${expertId}`, { token });
+  },
+
+  // Gestion des modules par les experts
+  getMyModules: async (token: string) => {
+    return apiCall('/modules/expert/my-modules', { token });
+  },
+
+  createModule: async (token: string, moduleData: any) => {
+    return apiCall('/modules/', {
+      method: 'POST',
+      body: moduleData,
+      token,
+    });
+  },
+
+  updateModule: async (token: string, moduleId: string, moduleData: any) => {
+    return apiCall(`/modules/${moduleId}`, {
+      method: 'PUT',
+      body: moduleData,
+      token,
+    });
+  },
+
+  deleteModule: async (token: string, moduleId: string) => {
+    return apiCall(`/modules/${moduleId}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+
+  publishModule: async (token: string, moduleId: string) => {
+    return apiCall(`/modules/${moduleId}/publish`, {
+      method: 'POST',
+      token,
+    });
+  },
+
+  getModuleContents: async (token: string, moduleId: string) => {
+    return apiCall(`/modules/${moduleId}/contents`, { token });
+  },
+
+  updateModuleContent: async (token: string, contentId: string, contentData: any) => {
+    return apiCall(`/modules/contents/${contentId}`, {
+      method: 'PUT',
+      body: contentData,
+      token,
+    });
+  },
+
+  deleteModuleContent: async (token: string, contentId: string) => {
+    return apiCall(`/modules/contents/${contentId}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+
+  reorderModuleContents: async (token: string, moduleId: string, contentOrders: any[]) => {
+    return apiCall(`/modules/${moduleId}/contents/reorder`, {
+      method: 'PUT',
+      body: contentOrders,
+      token,
+    });
+  },
+
+  // Statistiques des modules
+  getModuleStats: async (token: string, moduleId: string) => {
+    return apiCall(`/modules/${moduleId}/stats`, { token });
+  },
 };
+
+
 
 // ========== PROGRAMS API SERVER ==========
 export const programsServerAPI = {
@@ -522,11 +668,86 @@ export const programsServerAPI = {
       token,
     });
   },
+
+  // Gestion des experts assignés
+  assignExpertToProgram: async (token: string, programId: string, expertId: string, role: string = "mentor") => {
+    return apiCall(`/programs/${programId}/experts`, {
+      method: 'POST',
+      body: { expert_id: expertId, role },
+      token,
+    });
+  },
+
+  removeExpertFromProgram: async (token: string, programId: string, expertId: string) => {
+    return apiCall(`/programs/${programId}/experts/${expertId}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+
+  getProgramExperts: async (token: string, programId: string) => {
+    return apiCall(`/programs/${programId}/experts`, { token });
+  },
+
+  updateExpertRole: async (token: string, programId: string, expertId: string, role: string) => {
+    return apiCall(`/programs/${programId}/experts/${expertId}`, {
+      method: 'PUT',
+      body: { role },
+      token,
+    });
+  },
+
+  // Gestion des participants/inscriptions
+  removeParticipantFromProgram: async (token: string, programId: string, entrepreneurId: string) => {
+    return apiCall(`/programs/${programId}/participants/${entrepreneurId}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+
+  updateParticipantStatus: async (token: string, programId: string, entrepreneurId: string, status: string) => {
+    return apiCall(`/programs/${programId}/participants/${entrepreneurId}/status`, {
+      method: 'PUT',
+      body: { completion_status: status },
+      token,
+    });
+  },
+
+  // Inscriptions en attente (si vous gérez un processus d'approbation)
+  getPendingEnrollments: async (token: string, programId: string) => {
+    return apiCall(`/programs/${programId}/enrollments/pending`, { token });
+  },
+
+  approveEnrollment: async (token: string, programId: string, entrepreneurId: string) => {
+    return apiCall(`/programs/${programId}/enrollments/${entrepreneurId}/approve`, {
+      method: 'PUT',
+      token,
+    });
+  },
+
+  rejectEnrollment: async (token: string, programId: string, entrepreneurId: string, reason?: string) => {
+    return apiCall(`/programs/${programId}/enrollments/${entrepreneurId}/reject`, {
+      method: 'PUT',
+      body: { reason },
+      token,
+    });
+  },
+
+  // Statistiques avancées
+  getProgramDetailedStats: async (token: string, programId: string) => {
+    return apiCall(`/programs/${programId}/stats/detailed`, { token });
+  },
+
+  getProgramProgressReport: async (token: string, programId: string) => {
+    return apiCall(`/programs/${programId}/progress-report`, { token });
+  },
 };
+
+
 
 // ========== MODULES API SERVER ==========
 export const modulesServerAPI = {
-  // Récupération
+  // Récupération générale
   getModules: async (token: string, programId?: string) => {
     const endpoint = programId ? `/modules/program/${programId}` : '/modules/';
     return apiCall(endpoint, { token });
@@ -539,6 +760,65 @@ export const modulesServerAPI = {
   getModuleContents: async (token: string, moduleId: string) => {
     return apiCall(`/modules/${moduleId}/contents`, { token });
   },
+  
+  addModuleContent: async (token: string, moduleId: string, contentData: FormData) => {
+    const config: RequestInit = {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        // Ne pas définir Content-Type pour FormData
+      },
+      body: contentData,
+    };
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/modules/${moduleId}/contents`, config);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { detail: errorText || `HTTP ${response.status}` };
+        }
+        throw new Error(errorData.detail || `HTTP ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Upload error:', error);
+      throw error;
+    }
+  },
+
+  updateModuleContent: async (token: string, contentId: string, contentData: any) => {
+    return apiCall(`/modules/contents/${contentId}`, {
+      method: 'PUT',
+      body: contentData,
+      token,
+    });
+  },
+
+  deleteModuleContent: async (token: string, contentId: string) => {
+    return apiCall(`/modules/contents/${contentId}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+
+  reorderModuleContents: async (token: string, moduleId: string, contentOrders: any[]) => {
+    return apiCall(`/modules/${moduleId}/contents/reorder`, {
+      method: 'PUT',
+      body: contentOrders,
+      token,
+    });
+  },
+
+  // Expert - récupérer ses modules
+  getMyModules: async (token: string) => {
+    return apiCall('/modules/expert/my-modules', { token });
+  },
 
   // Création et modification
   createModule: async (token: string, moduleData: any) => {
@@ -548,6 +828,7 @@ export const modulesServerAPI = {
       token,
     });
   },
+
 
   updateModule: async (token: string, moduleId: string, moduleData: any) => {
     return apiCall(`/modules/${moduleId}`, {
@@ -564,6 +845,13 @@ export const modulesServerAPI = {
     });
   },
 
+  publishModule: async (token: string, moduleId: string) => {
+    return apiCall(`/modules/${moduleId}/publish`, {
+      method: "POST",
+      token,
+    });
+  },
+
   // Gestion du contenu
   addContent: async (token: string, moduleId: string, contentData: any) => {
     return apiCall(`/modules/${moduleId}/contents`, {
@@ -572,32 +860,230 @@ export const modulesServerAPI = {
       token,
     });
   },
-};
 
-// ========== MESSAGES API SERVER ==========
-export const messagesServerAPI = {
-  getConversations: async (token: string) => {
-    return apiCall('/messages/conversations/', { token });
-  },
-
-  getMessages: async (token: string, conversationId: string) => {
-    return apiCall(`/messages/conversations/${conversationId}`, { token });
-  },
-
-  sendMessage: async (token: string, conversationId: string, content: string) => {
-    return apiCall(`/messages/conversations/${conversationId}`, {
-      method: 'POST',
-      body: { content },
+  updateContent: async (token: string, contentId: string, contentData: any) => {
+    return apiCall(`/modules/contents/${contentId}`, {
+      method: "PUT",
+      body: contentData,
       token,
     });
   },
 
-  startConversation: async (token: string, recipientId: string, initialMessage: string) => {
-    return apiCall('/messages/conversations', {
+  deleteContent: async (token: string, contentId: string) => {
+    return apiCall(`/modules/contents/${contentId}`, {
+      method: "DELETE",
+      token,
+    });
+  },
+
+  reorderContents: async (token: string, moduleId: string, contentOrders: any[]) => {
+    return apiCall(`/modules/${moduleId}/contents/reorder`, {
+      method: "PUT",
+      body: contentOrders,
+      token,
+    });
+  },
+
+  // Recherche et stats
+  searchModules: async (token: string, query: string, filters?: any) => {
+    const params = new URLSearchParams({ query });
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) params.append(key, String(value));
+      });
+    }
+    return apiCall(`/modules/search?${params.toString()}`, { token });
+  },
+
+  getModuleStats: async (token: string, moduleId: string) => {
+    return apiCall(`/modules/${moduleId}/stats`, { token });
+  },
+
+  // Progression (pour entrepreneurs)
+  startModule: async (token: string, moduleId: string) => {
+    return apiCall(`/modules/${moduleId}/progress/start`, {
+      method: "POST",
+      token,
+    });
+  },
+
+  markContentCompleted: async (token: string, moduleId: string, contentId: string, timeSpent?: number) => {
+    const params = timeSpent ? `?time_spent=${timeSpent}` : '';
+    return apiCall(`/modules/${moduleId}/progress/content/${contentId}${params}`, {
+      method: "POST",
+      token,
+    });
+  },
+
+  getModuleProgress: async (token: string, moduleId: string) => {
+    return apiCall(`/modules/${moduleId}/progress`, { token });
+  },
+
+  getMyProgress: async (token: string, programId?: string) => {
+    const params = programId ? `?program_id=${programId}` : '';
+    return apiCall(`/modules/my-progress${params}`, { token });
+  },
+
+};
+
+// ========== MESSAGES API SERVER ==========
+export const messagesServerAPI = {
+  // ========== ENVOI ET GESTION DES MESSAGES ==========
+  sendMessage: async (token: string, messageData: any) => {
+    return apiCall('/messages/', {
+      method: 'POST',
+      body: messageData,
+      token,
+    });
+  },
+
+  sendMessageWithAttachment: async (token: string, formData: FormData) => {
+    return apiUpload('/messages/with-attachment', formData, token);
+  },
+
+  getMessage: async (token: string, messageId: string) => {
+    return apiCall(`/messages/${messageId}`, { token });
+  },
+
+  updateMessage: async (token: string, messageId: string, updateData: any) => {
+    return apiCall(`/messages/${messageId}`, {
+      method: 'PUT',
+      body: updateData,
+      token,
+    });
+  },
+
+  deleteMessage: async (token: string, messageId: string, deleteForAll: boolean = false) => {
+    return apiCall(`/messages/${messageId}?delete_for_all=${deleteForAll}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+
+  // ========== CONVERSATIONS ==========
+  getConversations: async (token: string, includeArchived: boolean = false, limit: number = 20) => {
+    const params = new URLSearchParams({
+      include_archived: includeArchived.toString(),
+      limit: limit.toString(),
+    });
+    return apiCall(`/messages/conversations/?${params.toString()}`, { token });
+  },
+
+  getConversationMessages: async (token: string, conversationId: string, skip: number = 0, limit: number = 50) => {
+    const params = new URLSearchParams({
+      skip: skip.toString(),
+      limit: limit.toString(),
+    });
+    return apiCall(`/messages/conversations/${conversationId}?${params.toString()}`, { token });
+  },
+
+  markConversationAsRead: async (token: string, conversationId: string) => {
+    return apiCall(`/messages/conversations/${conversationId}/read`, {
+      method: 'PUT',
+      token,
+    });
+  },
+
+  // ========== RÉACTIONS ==========
+  addReaction: async (token: string, messageId: string, emoji: string, reactionType: string) => {
+    return apiCall(`/messages/${messageId}/reactions`, {
+      method: 'POST',
+      body: { emoji, reaction_type: reactionType },
+      token,
+    });
+  },
+
+  removeReaction: async (token: string, messageId: string) => {
+    return apiCall(`/messages/${messageId}/reactions`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+
+  // ========== RECHERCHE ==========
+  searchMessages: async (token: string, filters: any, skip: number = 0, limit: number = 20) => {
+    const params = new URLSearchParams({
+      skip: skip.toString(),
+      limit: limit.toString(),
+    });
+    return apiCall(`/messages/search?${params.toString()}`, {
+      method: 'POST',
+      body: filters,
+      token,
+    });
+  },
+
+  // ========== STATISTIQUES ==========
+  getMessageStats: async (token: string) => {
+    return apiCall('/messages/stats', { token });
+  },
+
+  getUnreadCount: async (token: string) => {
+    return apiCall('/messages/unread-count', { token });
+  },
+
+  getMessagingSummary: async (token: string) => {
+    return apiCall('/messages/summary', { token });
+  },
+
+  // ========== THREADS ==========
+  getMessageThread: async (token: string, messageId: string) => {
+    return apiCall(`/messages/${messageId}/thread`, { token });
+  },
+
+  // ========== UTILITAIRES ==========
+  markAsDelivered: async (token: string, messageId: string) => {
+    return apiCall(`/messages/mark-delivered/${messageId}`, {
+      method: 'POST',
+      token,
+    });
+  },
+
+  // ========== NOUVEAUX ENDPOINTS POUR EXPERTS ==========
+  // Conversations avec les entrepreneurs
+  getEntrepreneurConversations: async (token: string) => {
+    return apiCall('/messages/conversations/', { 
+      token,
+    });
+  },
+
+  // Démarrer nouvelle conversation avec un entrepreneur
+  startConversationWithEntrepreneur: async (token: string, entrepreneurId: string, initialMessage: string, subject?: string) => {
+    return apiCall('/messages/', {
       method: 'POST',
       body: {
-        recipient_id: recipientId,
-        initial_message: initialMessage,
+        receiver_id: entrepreneurId,
+        message_text: initialMessage,
+        subject: subject,
+        message_type: 'direct'
+      },
+      token,
+    });
+  },
+
+  // Messages de groupe/programme
+  sendProgramMessage: async (token: string, programId: string, messageText: string, subject?: string) => {
+    return apiCall('/messages/', {
+      method: 'POST',
+      body: {
+        program_id: programId,
+        message_text: messageText,
+        subject: subject,
+        message_type: 'group'
+      },
+      token,
+    });
+  },
+
+  // Répondre à un message
+  replyToMessage: async (token: string, parentMessageId: string, messageText: string, receiverId?: string) => {
+    return apiCall('/messages/', {
+      method: 'POST',
+      body: {
+        parent_message_id: parentMessageId,
+        receiver_id: receiverId,
+        message_text: messageText,
+        message_type: 'direct'
       },
       token,
     });

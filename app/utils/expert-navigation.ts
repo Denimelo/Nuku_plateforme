@@ -11,15 +11,15 @@ export function getExpertNavigation(currentPath: string) {
   return [
     { 
       name: "Tableau de bord", 
-      href: "/expert", 
+      href: "/expert/dashboard", 
       icon: TrendingUp, 
-      current: currentPath === "/expert" 
+      current: currentPath === "/expert/dashboard"
     },
     { 
       name: "Mes Modules", 
       href: "/expert/modules", 
       icon: BookOpen,
-      current: currentPath.startsWith("/expert/modules")
+      current: currentPath.startsWith("/expert/modules") || currentPath.startsWith("/expert/module")
     },
     { 
       name: "Évaluations", 
@@ -41,9 +41,9 @@ export function getExpertNavigation(currentPath: string) {
     },
     { 
       name: "Messages", 
-      href: "/expert/messages", 
+      href: "/messages", 
       icon: MessageCircle,
-      current: currentPath.startsWith("/expert/messages")
+      current: currentPath.startsWith("/messages")
     },
   ];
 }

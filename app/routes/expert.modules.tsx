@@ -3,9 +3,10 @@ import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { useLoaderData, useActionData, Form, useLocation } from "@remix-run/react";
 import { Layout } from "~/components/layout/Layout";
-import { requireAdmin } from "~/utils/auth.server";
-import { getAdminNavigation } from "~/utils/admin-navigation";
+import { requireExpert } from "~/utils/auth.server";
+import { getExpertNavigation } from "~/utils/expert-navigation";
 import { getUserSession } from "~/utils/session.server";
+import { modulesServerAPI } from "~/utils/api.server";
 import { 
   Search, 
   CheckCircle, 
@@ -27,13 +28,13 @@ import {
   Users,
   Target,
   Edit3,
-  Trash2
+  Trash2,
+  Star,
+  BarChart3
 } from "lucide-react";
 
-const API_BASE_URL = "https://nuku-api.onrender.com/api/v1";
-
 export async function loader({ request }: LoaderFunctionArgs) {
-  const user = await requireAdmin(request);
+  const user = await requireExpert(request);
   const session = await getUserSession(request);
   
   if (!session) {
@@ -43,30 +44,39 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const search = url.searchParams.get("search") || "";
   const filter = url.searchParams.get("filter") || "all";
-  const programFilter = url.searchParams.get("program") || "all";
 
   try {
-    // Récupérer tous les modules via l'API
-    const modulesData = await fetch(`${API_BASE_URL}/modules/`, {
-      headers: { Authorization: `Bearer ${session.token}` }
-    }).then(res => {
-      if (!res.ok) throw new Error("Erreur lors du chargement des modules");
-      return res.json();
-    }).catch(() => []);
+    // Récupérer les modules de l'expert avec gestion d'erreur robuste
+    let expertModules = [];
+    
+    try {
+      expertModules = await modulesServerAPI.getMyModules(session.token);
+    } catch (error) {
+      console.log("Erreur API modules expert, utilisation de fallback:", error);
+      // Essayer un fallback avec l'API générale si disponible
+      try {
+        const allModules = await fetch(`${API_BASE_URL}/modules/`, {
+          headers: { Authorization: `Bearer ${session.token}` }
+        }).then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        });
+        
+        // Filtrer les modules de cet expert
+        expertModules = allModules.filter((module: any) => 
+          module.created_by === user.user_id
+        );
+      } catch {
+        // Si tout échoue, utiliser des données vides
+        expertModules = [];
+      }
+    }
 
-    // Récupérer tous les programmes pour le filtre
-    const programsData = await fetch(`${API_BASE_URL}/programs/?active_only=false`, {
-      headers: { Authorization: `Bearer ${session.token}` }
-    }).then(res => {
-      if (!res.ok) return [];
-      return res.json();
-    }).catch(() => []);
-
-    // Filtrer selon les paramètres
-    let filteredModules = modulesData;
+    // Filtrer selon les paramètres de recherche
+    let filteredModules = expertModules;
     
     if (filter !== "all") {
-      filteredModules = modulesData.filter((module: any) => {
+      filteredModules = expertModules.filter((module: any) => {
         switch (filter) {
           case "published":
             return module.status === "published";
@@ -84,12 +94,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
       });
     }
 
-    if (programFilter !== "all") {
-      filteredModules = filteredModules.filter((module: any) =>
-        module.program_id === programFilter
-      );
-    }
-
     if (search) {
       filteredModules = filteredModules.filter((module: any) =>
         module.title?.toLowerCase().includes(search.toLowerCase()) ||
@@ -97,23 +101,21 @@ export async function loader({ request }: LoaderFunctionArgs) {
       );
     }
 
-    // Calculer les statistiques
+    // Calculer les statistiques sur les modules réels
     const stats = {
-      total: modulesData.length,
-      published: modulesData.filter((m: any) => m.status === "published").length,
-      draft: modulesData.filter((m: any) => m.status === "draft").length,
-      lessons: modulesData.filter((m: any) => m.module_type === "lesson").length,
-      workshops: modulesData.filter((m: any) => m.module_type === "workshop").length,
-      assessments: modulesData.filter((m: any) => m.module_type === "assessment").length,
+      total: expertModules.length,
+      published: expertModules.filter((m: any) => m.status === "published").length,
+      draft: expertModules.filter((m: any) => m.status === "draft").length,
+      lessons: expertModules.filter((m: any) => m.module_type === "lesson").length,
+      workshops: expertModules.filter((m: any) => m.module_type === "workshop").length,
+      assessments: expertModules.filter((m: any) => m.module_type === "assessment").length,
     };
 
     return json({ 
       user, 
       modules: filteredModules,
-      programs: programsData,
       search,
       filter,
-      programFilter,
       stats
     });
   } catch (error) {
@@ -121,10 +123,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
     return json({ 
       user, 
       modules: [], 
-      programs: [],
       search,
       filter,
-      programFilter,
       stats: { total: 0, published: 0, draft: 0, lessons: 0, workshops: 0, assessments: 0 }
     });
   }
@@ -143,11 +143,7 @@ export async function action({ request }: ActionFunctionArgs) {
     switch (action) {
       case "delete_module":
         const moduleId = formData.get("moduleId") as string;
-        // TODO: Implémenter la suppression de module
-        await fetch(`${API_BASE_URL}/modules/${moduleId}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${session.token}` }
-        });
+        await modulesServerAPI.deleteModule(session.token, moduleId);
         return json({ success: "Module supprimé avec succès" });
 
       default:
@@ -158,13 +154,13 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 }
 
-export default function AdminModules() {
-  const { user, modules, programs, search, filter, programFilter, stats } = useLoaderData<typeof loader>();
+export default function ExpertModules() {
+  const { user, modules, search, filter, stats } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const location = useLocation();
   const [showDeleteModal, setShowDeleteModal] = useState<string | null>(null);
 
-  const navigation = getAdminNavigation(location.pathname);
+  const navigation = getExpertNavigation(location.pathname);
 
   const getModuleTypeIcon = (type: string) => {
     switch (type) {
@@ -242,15 +238,15 @@ export default function AdminModules() {
   };
 
   return (
-    <Layout user={user} title="Gestion des modules" navigation={navigation}>
+    <Layout user={user} title="Mes modules" navigation={navigation}>
       {/* En-tête avec gradient */}
       <div className="mb-8">
         <div className="bg-gradient-to-r from-slate-800 to-teal-700 rounded-3xl p-8 text-white relative overflow-hidden">
           <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-teal-400/20 to-transparent rounded-full blur-3xl"></div>
           <div className="relative">
-            <h1 className="text-4xl font-bold mb-4">Gestion des modules</h1>
+            <h1 className="text-4xl font-bold mb-4">Mes modules pédagogiques</h1>
             <p className="text-xl text-slate-200 mb-6">
-              Créez et gérez vos contenus pédagogiques
+              Créez et gérez vos contenus de formation
             </p>
             <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
               <StatBadge label="Total" value={stats.total} color="white" />
@@ -278,11 +274,10 @@ export default function AdminModules() {
                   name="search"
                   defaultValue={search}
                   type="text"
-                  placeholder="Rechercher par titre, description..."
+                  placeholder="Rechercher mes modules..."
                   className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-2xl leading-5 bg-white/70 backdrop-blur placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
                 />
                 <input type="hidden" name="filter" value={filter} />
-                <input type="hidden" name="program" value={programFilter} />
               </form>
             </div>
 
@@ -295,12 +290,11 @@ export default function AdminModules() {
                   const url = new URL(window.location.href);
                   url.searchParams.set("filter", e.target.value);
                   if (search) url.searchParams.set("search", search);
-                  if (programFilter !== "all") url.searchParams.set("program", programFilter);
                   window.location.href = url.toString();
                 }}
                 className="block pl-3 pr-10 py-3 text-base border border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent rounded-2xl bg-white/70 backdrop-blur"
               >
-                <option value="all">Tous les modules</option>
+                <option value="all">Tous mes modules</option>
                 <option value="published">Publiés</option>
                 <option value="draft">Brouillons</option>
                 <option value="lesson">Cours</option>
@@ -308,28 +302,8 @@ export default function AdminModules() {
                 <option value="assessment">Évaluations</option>
               </select>
 
-              <select
-                name="program"
-                value={programFilter}
-                onChange={(e) => {
-                  const url = new URL(window.location.href);
-                  url.searchParams.set("program", e.target.value);
-                  if (search) url.searchParams.set("search", search);
-                  if (filter !== "all") url.searchParams.set("filter", filter);
-                  window.location.href = url.toString();
-                }}
-                className="block pl-3 pr-10 py-3 text-base border border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent rounded-2xl bg-white/70 backdrop-blur"
-              >
-                <option value="all">Tous les programmes</option>
-                {programs.map((program: any) => (
-                  <option key={program.program_id} value={program.program_id}>
-                    {program.name}
-                  </option>
-                ))}
-              </select>
-
               <a
-                href="/admin/module/create"
+                href="/expert/module/create"
                 className="inline-flex items-center px-6 py-3 border border-transparent text-sm font-medium rounded-2xl shadow-lg transition-all text-white bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800"
               >
                 <Plus className="h-4 w-4 mr-2" />
@@ -388,7 +362,7 @@ export default function AdminModules() {
                 {/* Actions */}
                 <div className="flex items-center space-x-1">
                   <a
-                    href={`/admin/module/${module.module_id}`}
+                    href={`/expert/module/${module.module_id}`}
                     className="text-teal-600 hover:text-teal-900 p-2 rounded-full hover:bg-teal-50 transition-all"
                     title="Voir détails"
                   >
@@ -432,10 +406,20 @@ export default function AdminModules() {
                 <div className="flex items-center justify-between p-2 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl">
                   <span className="text-gray-600 flex items-center">
                     <Users className="h-3 w-3 mr-1" />
-                    Créé par:
+                    Vues:
                   </span>
                   <span className="font-medium text-purple-700">
-                    {module.creator_name || "Expert"}
+                    {module.views_count || 0}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between p-2 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl">
+                  <span className="text-gray-600 flex items-center">
+                    <Star className="h-3 w-3 mr-1" />
+                    Note:
+                  </span>
+                  <span className="font-medium text-yellow-700">
+                    {module.average_rating ? `${module.average_rating.toFixed(1)}/5` : 'Pas encore noté'}
                   </span>
                 </div>
 
@@ -460,6 +444,31 @@ export default function AdminModules() {
                   </div>
                 </div>
               )}
+
+              {/* Actions rapides */}
+              <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <a
+                    href={`/expert/moduleedit/${module.module_id}`}
+                    className="text-xs text-teal-600 hover:text-teal-800 font-medium"
+                  >
+                    Modifier
+                  </a>
+                  <span className="text-gray-300">•</span>
+                  <a
+                    href={`/expert/modulecontent/${module.module_id}`}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    Contenus
+                  </a>
+                </div>
+                {module.status === 'published' && (
+                  <div className="flex items-center text-xs text-green-600">
+                    <TrendingUp className="h-3 w-3 mr-1" />
+                    En ligne
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -470,17 +479,22 @@ export default function AdminModules() {
         <div className="text-center py-16">
           <div className="bg-white/80 backdrop-blur-sm shadow-xl rounded-3xl border border-white/50 p-12">
             <BookOpen className="mx-auto h-16 w-16 text-gray-400 mb-4" />
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Aucun module trouvé</h3>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">
+              {search ? "Aucun module trouvé" : "Créez votre premier module"}
+            </h3>
             <p className="text-gray-500 mb-6">
-              {search ? "Essayez de modifier vos critères de recherche." : "Commencez par créer votre premier module pédagogique."}
+              {search ? 
+                "Essayez de modifier vos critères de recherche." : 
+                "Commencez à partager vos connaissances en créant du contenu pédagogique."
+              }
             </p>
             {!search && (
               <a
-                href="/admin/module/create"
+                href="/expert/module/create"
                 className="inline-flex items-center px-6 py-3 border border-transparent text-sm font-medium rounded-2xl text-white bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 shadow-lg transition-all"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Créer le premier module
+                Créer mon premier module
               </a>
             )}
           </div>
@@ -564,7 +578,7 @@ function ModuleActionsDropdown({ module, onDelete }: any) {
         <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-200 z-10">
           <div className="p-2">
             <a
-              href={`/admin/module/${module.module_id}`}
+              href={`/expert/module/${module.module_id}`}
               className="flex items-center px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-xl"
             >
               <Eye className="h-4 w-4 mr-2" />
@@ -572,11 +586,27 @@ function ModuleActionsDropdown({ module, onDelete }: any) {
             </a>
             
             <a
-              href={`/admin/moduleedit/${module.module_id}/edit`}
+              href={`/expert/moduleedit/${module.module_id}`}
               className="flex items-center px-3 py-2 text-sm text-teal-700 hover:bg-teal-50 rounded-xl"
             >
               <Edit3 className="h-4 w-4 mr-2" />
               Modifier
+            </a>
+
+            <a
+              href={`/expert/modulecontent/${module.module_id}`}
+              className="flex items-center px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 rounded-xl"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Gérer contenus
+            </a>
+
+            <a
+              href={`/expert/modulestats/${module.module_id}`}
+              className="flex items-center px-3 py-2 text-sm text-purple-700 hover:bg-purple-50 rounded-xl"
+            >
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Statistiques
             </a>
             
             <button

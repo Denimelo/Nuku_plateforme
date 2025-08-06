@@ -21,6 +21,8 @@ import {
   Smartphone,
 } from "lucide-react";
 import { getAdminNavigation } from "~/utils/admin-navigation";
+import { getEntrepreneurNavigation } from "~/utils/entrepreneur-navigation";
+import { getExpertNavigation } from "~/utils/expert-navigation";
 
 // Loader pour récupérer les données utilisateur
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -159,11 +161,9 @@ export default function Profile() {
       case "admin":
         return getAdminNavigation(currentPath);
       case "entrepreneur":
-        // return getEntrepreneurNavigation(currentPath); // À créer si nécessaire
-        return [];
+        return getEntrepreneurNavigation(currentPath);
       case "expert":
-        // return getExpertNavigation(currentPath); // À créer si nécessaire
-        return [];
+        return getExpertNavigation(currentPath);
       default:
         return [];
     }
