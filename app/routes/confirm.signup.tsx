@@ -38,7 +38,7 @@ export default function SignupConfirmation() {
                   <div className="relative z-10">
                     <img
                       className="h-16 w-auto filter brightness-110 drop-shadow-lg"
-                      src="../../../../public/images/logo_nuku.webp"
+                      src="../../../../images/logo_nuku.webp"
                       alt="NUKU"
                     />
                   </div>

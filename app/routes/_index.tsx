@@ -38,7 +38,7 @@ const Header = () => {
         {/* Logo */}
         <div className="flex items-center">
           <img
-            src="../../public/images/logo_nuku.webp"
+            src="../../images/logo_nuku.webp"
             alt="NUKU Logo"
             className="h-8 w-auto"
           />
@@ -150,7 +150,7 @@ const HeroSection = () => {
 
       <div className="lg:w-1/2">
         <img
-          src="../../public/images/banner_hero.webp"
+          src="../../images/banner_hero.webp"
           alt="Équipe NUKU en collaboration"
           className="w-full h-80 lg:h-96 object-cover rounded-lg shadow-lg transform hover:scale-105 transition-transform duration-500"
         />
@@ -265,7 +265,7 @@ const SavoirFaireSection = ({ isVisible }) => {
             title="Apprenez"
             subtitle="où que vous soyez"
             description="Accédez à votre formation 100% en ligne au bureau, à la maison, en ville, à la montagne... Partout !"
-            imageSrc="../../public/images/icone_apprendre_en_ligne.webp"
+            imageSrc="../../images/icone_apprendre_en_ligne.webp"
             imageAlt="Apprentissage en ligne partout"
           />
 
@@ -273,7 +273,7 @@ const SavoirFaireSection = ({ isVisible }) => {
             title="Un mentor"
             subtitle="pour vous accompagner"
             description="Bénéficiez des conseils d'un expert du métier qui vous aide à progresser tout au long de votre formation."
-            imageSrc="../../public/images/icone_mentor.webp"
+            imageSrc="../../images/icone_mentor.webp"
             imageAlt="Mentor pour accompagnement"
           />
 
@@ -281,7 +281,7 @@ const SavoirFaireSection = ({ isVisible }) => {
             title="Travaillez sur"
             subtitle="des projets professionnalisants"
             description="Réalisez des projets concrets, issus de scénarios métiers, directement applicables dans le monde du travail."
-            imageSrc="../../public/images/icone_projets.webp"
+            imageSrc="../../images/icone_projets.webp"
             imageAlt="Projets professionnalisants"
           />
         </div>
@@ -401,7 +401,7 @@ const SuccessStoriesSection = ({ isVisible }) => {
         "Grâce à NUKU, j'ai pu transformer mon idée écologique en startup rentable. Le mentorat et les formations pratiques ont été déterminants.",
       funding: "500K fcfa levés",
       avatar:
-        "https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150&h=150&fit=crop&crop=face",
+      "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=150&h=150&fit=crop&crop=face",
     },
     {
       name: "Thomas Martin",
@@ -519,7 +519,7 @@ const Footer = () => {
           {/* Logo et description */}
           <div className="col-span-1">
             <img
-              src="../../public/images/logo_nuku.webp"
+              src="../../images/logo_nuku.webp"
               alt="NUKU Logo"
               className="h-8 w-auto mb-4 filter invert"
             />

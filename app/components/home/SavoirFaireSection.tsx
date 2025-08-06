@@ -17,7 +17,7 @@ export function SavoirFaireSection() {
             title="Apprenez"
             subtitle="où que vous soyez"
             description="Accédez à votre formation 100% en ligne au bureau, à la maison, en ville, à la montagne... Partout !"
-            imageSrc="../../public/images/icone_apprendre_en_ligne.webp"
+            imageSrc="../../images/icone_apprendre_en_ligne.webp"
             imageAlt="Apprentissage en ligne partout"
           />
 
@@ -25,7 +25,7 @@ export function SavoirFaireSection() {
             title="Un mentor"
             subtitle="pour vous accompagner"
             description="Bénéficiez des conseils d'un expert du métier qui vous aide à progresser tout au long de votre formation."
-            imageSrc="../../public/images/icone_mentor.webp"
+            imageSrc="../../images/icone_mentor.webp"
             imageAlt="Mentor pour accompagnement"
           />
 
@@ -33,7 +33,7 @@ export function SavoirFaireSection() {
             title="Travaillez sur"
             subtitle="des projets professionnalisants"
             description="Réalisez des projets concrets, issus de scénarios métiers, directement applicables dans le monde du travail."
-            imageSrc="../../public/images/icone_projets.webp"
+            imageSrc="../../images/icone_projets.webp"
             imageAlt="Projets professionnalisants"
           />
         </div>

@@ -70,7 +70,7 @@ export default function ResetPassword() {
           <div className="flex justify-center">
             <img
               className="h-12 w-auto"
-              src="../../public/images/logo_nuku.webp"
+              src="../../images/logo_nuku.webp"
               alt="NUKU"
             />
           </div>
