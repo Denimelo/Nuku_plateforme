@@ -3,7 +3,6 @@ import {
   Users,
   Shield,
   BookOpen,
-  FileText,
   Calendar,
   BarChart3,
   Settings,
@@ -58,7 +57,7 @@ export function getAdminNavigation(currentPath: string) {
     {
       name: "Messages",
       href: "/messages",
-      icon: MessageCircle, // J'ai remplacé Users par MessageCircle pour plus de cohérence
+      icon: MessageCircle,
       current: currentPath.startsWith("/messages"),
     },
     {

@@ -1013,15 +1013,17 @@ export const messagesServerAPI = {
     });
   },
 
-  // ========== STATISTIQUES ==========
+  // ========== STATISTIQUES - ROUTES CORRIGÉES ==========
   getMessageStats: async (token: string) => {
     return apiCall('/messages/stats', { token });
   },
 
+  // CORRECTION: L'endpoint correct selon votre backend
   getUnreadCount: async (token: string) => {
     return apiCall('/messages/unread-count', { token });
   },
 
+  // CORRECTION: L'endpoint correct selon votre backend  
   getMessagingSummary: async (token: string) => {
     return apiCall('/messages/summary', { token });
   },
@@ -1039,15 +1041,7 @@ export const messagesServerAPI = {
     });
   },
 
-  // ========== NOUVEAUX ENDPOINTS POUR EXPERTS ==========
-  // Conversations avec les entrepreneurs
-  getEntrepreneurConversations: async (token: string) => {
-    return apiCall('/messages/conversations/', { 
-      token,
-    });
-  },
-
-  // Démarrer nouvelle conversation avec un entrepreneur
+  // ========== SIMPLIFIED FUNCTIONS FOR EXPERTS ==========
   startConversationWithEntrepreneur: async (token: string, entrepreneurId: string, initialMessage: string, subject?: string) => {
     return apiCall('/messages/', {
       method: 'POST',

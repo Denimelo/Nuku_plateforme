@@ -1,6 +1,6 @@
 // app/components/messages/ConversationList.tsx
 import { UserTypeBadge } from "./UserTypeBadge";
-import { MessageCircle, Users, Clock, Pin } from "lucide-react";
+import { MessageCircle, Users, Pin } from "lucide-react";
 
 interface ConversationListProps {
   conversations: any[];

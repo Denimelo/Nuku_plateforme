@@ -1,4 +1,4 @@
-// app/routes/messages.$conversationId.tsx
+// app/routes/messages.$conversationId.tsx - VERSION CORRIGÉE
 import { useState, useEffect, useRef } from "react";
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
@@ -11,7 +11,8 @@ import { requireUser } from "~/utils/auth.server";
 import { getAdminNavigation } from "~/utils/admin-navigation";
 import { getExpertNavigation } from "~/utils/expert-navigation";
 import { getEntrepreneurNavigation } from "~/utils/entrepreneur-navigation";
-import { messagesServerAPI } from "~/utils/api.server";
+// SUPPRESSION DE L'IMPORT CÔTÉ CLIENT
+// import { messagesServerAPI } from "~/utils/api.server";
 import { getUserSession } from "~/utils/session.server";
 import { 
   ArrowLeft, 
@@ -40,11 +41,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   try {
+    const API_BASE_URL = "https://nuku-api.onrender.com/api/v1";
+
     // Récupérer les messages de la conversation
-    const [messages, conversations] = await Promise.all([
-      messagesServerAPI.getConversationMessages(session.token, conversationId, 0, 100),
-      messagesServerAPI.getConversations(session.token, false, 100)
-    ]);
+    const messagesResponse = await fetch(`${API_BASE_URL}/messages/conversations/${conversationId}?skip=0&limit=100`, {
+      headers: { Authorization: `Bearer ${session.token}` }
+    });
+    const messages = messagesResponse.ok ? await messagesResponse.json() : [];
+
+    // Récupérer toutes les conversations pour trouver la conversation actuelle
+    const conversationsResponse = await fetch(`${API_BASE_URL}/messages/conversations/?include_archived=false&limit=100`, {
+      headers: { Authorization: `Bearer ${session.token}` }
+    });
+    const conversations = conversationsResponse.ok ? await conversationsResponse.json() : [];
 
     // Trouver la conversation actuelle
     const currentConversation = conversations.find((conv: any) => 
@@ -52,11 +61,24 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     );
 
     if (!currentConversation) {
-      throw new Error("Conversation introuvable");
+      return json({
+        user,
+        messages: [],
+        conversation: null,
+        conversationId,
+        error: "Conversation introuvable"
+      });
     }
 
     // Marquer comme lue
-    await messagesServerAPI.markConversationAsRead(session.token, conversationId);
+    try {
+      await fetch(`${API_BASE_URL}/messages/conversations/${conversationId}/read`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${session.token}` }
+      });
+    } catch (error) {
+      console.log("Impossible de marquer comme lu");
+    }
 
     return json({ 
       user, 
@@ -80,7 +102,6 @@ export default function ConversationPage() {
   const { user, messages: initialMessages, conversation, conversationId, error } = useLoaderData<typeof loader>();
   const location = useLocation();
   const navigate = useNavigate();
-  const params = useParams();
 
   // États locaux
   const [messages, setMessages] = useState(initialMessages);
@@ -151,15 +172,15 @@ export default function ConversationPage() {
   }
 
   // Obtenir les autres participants
-  const otherParticipants = conversation.participants.filter(
+  const otherParticipants = conversation.participants?.filter(
     (p: any) => p.user_id !== user.user_id
-  );
+  ) || [];
 
   // Titre de la conversation
   const conversationTitle = conversation.title || 
-    otherParticipants.map((p: any) => p.name).join(', ');
+    otherParticipants.map((p: any) => p.name).join(', ') || 'Conversation';
 
-  // Envoyer un message
+  // Envoyer un message - UTILISATION DE FETCH
   const handleSendMessage = async (messageText: string, attachments?: File[]) => {
     try {
       const token = localStorage.getItem('auth_token') || '';
@@ -178,18 +199,43 @@ export default function ConversationPage() {
           formData.append('files', file);
         });
 
-        const response = await messagesServerAPI.sendMessageWithAttachment(token, formData);
-        setMessages(prev => [...prev, response]);
+        const response = await fetch('https://nuku-api.onrender.com/api/v1/messages/with-attachment', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          setMessages(prev => [...prev, result]);
+        } else {
+          throw new Error('Erreur lors de l\'envoi avec pièces jointes');
+        }
       } else {
         // Message texte simple
         const messageData = {
+          receiver_id: otherParticipants[0]?.user_id || null,
           message_text: messageText,
-          conversation_id: conversationId,
           parent_message_id: replyingTo?.message_id || null
         };
 
-        const response = await messagesServerAPI.sendMessage(token, messageData);
-        setMessages(prev => [...prev, response]);
+        const response = await fetch('https://nuku-api.onrender.com/api/v1/messages/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(messageData),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          setMessages(prev => [...prev, result]);
+        } else {
+          throw new Error('Erreur lors de l\'envoi du message');
+        }
       }
 
       setReplyingTo(null);
@@ -210,16 +256,27 @@ export default function ConversationPage() {
     if (newText && newText !== message.message_text) {
       try {
         const token = localStorage.getItem('auth_token') || '';
-        await messagesServerAPI.updateMessage(token, message.message_id, {
-          message_text: newText
+        const response = await fetch(`https://nuku-api.onrender.com/api/v1/messages/${message.message_id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            message_text: newText
+          }),
         });
-        
-        // Mettre à jour localement
-        setMessages(prev => prev.map(msg => 
-          msg.message_id === message.message_id 
-            ? { ...msg, message_text: newText, edit_count: (msg.edit_count || 0) + 1 }
-            : msg
-        ));
+
+        if (response.ok) {
+          // Mettre à jour localement
+          setMessages(prev => prev.map(msg => 
+            msg.message_id === message.message_id 
+              ? { ...msg, message_text: newText, edit_count: (msg.edit_count || 0) + 1 }
+              : msg
+          ));
+        } else {
+          throw new Error('Erreur lors de la modification');
+        }
       } catch (error) {
         console.error("Erreur lors de la modification:", error);
         alert("Erreur lors de la modification du message");
@@ -232,10 +289,19 @@ export default function ConversationPage() {
     if (confirm("Êtes-vous sûr de vouloir supprimer ce message ?")) {
       try {
         const token = localStorage.getItem('auth_token') || '';
-        await messagesServerAPI.deleteMessage(token, messageId, false);
-        
-        // Retirer localement
-        setMessages(prev => prev.filter(msg => msg.message_id !== messageId));
+        const response = await fetch(`https://nuku-api.onrender.com/api/v1/messages/${messageId}?delete_for_all=false`, {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          // Retirer localement
+          setMessages(prev => prev.filter(msg => msg.message_id !== messageId));
+        } else {
+          throw new Error('Erreur lors de la suppression');
+        }
       } catch (error) {
         console.error("Erreur lors de la suppression:", error);
         alert("Erreur lors de la suppression du message");
@@ -247,24 +313,36 @@ export default function ConversationPage() {
   const handleReact = async (messageId: string, emoji: string) => {
     try {
       const token = localStorage.getItem('auth_token') || '';
-      await messagesServerAPI.addReaction(token, messageId, emoji, 'reaction');
-      
-      // Mettre à jour localement (simplifié)
-      setMessages(prev => prev.map(msg => 
-        msg.message_id === messageId
-          ? { 
-              ...msg, 
-              reactions: [...(msg.reactions || []), {
-                reaction_id: Date.now().toString(),
-                user_id: user.user_id,
-                user_name: `${user.first_name} ${user.last_name}`,
-                emoji: emoji,
-                reaction_type: 'reaction',
-                created_at: new Date().toISOString()
-              }]
-            }
-          : msg
-      ));
+      const response = await fetch(`https://nuku-api.onrender.com/api/v1/messages/${messageId}/reactions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          emoji: emoji,
+          reaction_type: 'reaction'
+        }),
+      });
+
+      if (response.ok) {
+        // Mettre à jour localement (simplifié)
+        setMessages(prev => prev.map(msg => 
+          msg.message_id === messageId
+            ? { 
+                ...msg, 
+                reactions: [...(msg.reactions || []), {
+                  reaction_id: Date.now().toString(),
+                  user_id: user.user_id,
+                  user_name: `${user.first_name} ${user.last_name}`,
+                  emoji: emoji,
+                  reaction_type: 'reaction',
+                  created_at: new Date().toISOString()
+                }]
+              }
+            : msg
+        ));
+      }
     } catch (error) {
       console.error("Erreur lors de l'ajout de la réaction:", error);
     }
@@ -355,7 +433,7 @@ export default function ConversationPage() {
                         className="w-10 h-10 rounded-full bg-gradient-to-r from-teal-400 to-green-400 flex items-center justify-center text-white font-bold text-sm border-2 border-white shadow-lg"
                         style={{ zIndex: 10 - index }}
                       >
-                        {participant.name.charAt(0).toUpperCase()}
+                        {participant.name?.charAt(0).toUpperCase() || '?'}
                       </div>
                     ))}
                     {otherParticipants.length > 3 && (
@@ -371,10 +449,10 @@ export default function ConversationPage() {
                     </h1>
                     <div className="flex items-center space-x-2">
                       <p className="text-sm text-gray-500">
-                        {conversation.participant_count} participant{conversation.participant_count !== 1 ? 's' : ''}
+                        {conversation.participant_count || otherParticipants.length + 1} participant{(conversation.participant_count || otherParticipants.length + 1) !== 1 ? 's' : ''}
                       </p>
                       {otherParticipants.length === 1 && (
-                        <UserTypeBadge userType={otherParticipants[0].user_type} size="sm" />
+                        <UserTypeBadge userType={otherParticipants[0].user_type || 'user'} size="sm" />
                       )}
                       {isTyping && (
                         <div className="flex items-center space-x-1 text-teal-600">
@@ -516,7 +594,7 @@ export default function ConversationPage() {
             <div className="w-80 bg-white/80 backdrop-blur-sm shadow-xl border-l border-white/50 overflow-y-auto">
               <ConversationInfoPanel 
                 conversation={conversation}
-                participants={conversation.participants}
+                participants={conversation.participants || []}
                 currentUser={user}
                 onClose={() => setShowConversationInfo(false)}
               />
@@ -561,12 +639,12 @@ function ConversationInfoPanel({
           {participants.map((participant) => (
             <div key={participant.user_id} className="flex items-center space-x-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-r from-teal-400 to-green-400 flex items-center justify-center text-white font-bold text-sm">
-                {participant.name.charAt(0).toUpperCase()}
+                {participant.name?.charAt(0).toUpperCase() || '?'}
               </div>
               <div className="flex-1">
-                <p className="font-medium text-gray-900">{participant.name}</p>
+                <p className="font-medium text-gray-900">{participant.name || 'Utilisateur'}</p>
                 <div className="flex items-center space-x-2">
-                  <UserTypeBadge userType={participant.user_type} size="sm" />
+                  <UserTypeBadge userType={participant.user_type || 'user'} size="sm" />
                   {participant.user_id === currentUser.user_id && (
                     <span className="text-xs text-gray-500">(Vous)</span>
                   )}
@@ -606,7 +684,7 @@ function ConversationInfoPanel({
         <div className="space-y-2 text-sm text-gray-600">
           <div className="flex justify-between">
             <span>Messages</span>
-            <span>{conversation.message_count}</span>
+            <span>{conversation.message_count || 0}</span>
           </div>
           <div className="flex justify-between">
             <span>Créée le</span>
@@ -614,7 +692,7 @@ function ConversationInfoPanel({
           </div>
           <div className="flex justify-between">
             <span>Dernière activité</span>
-            <span>{new Date(conversation.last_activity_at).toLocaleDateString('fr-FR')}</span>
+            <span>{new Date(conversation.last_activity_at || Date.now()).toLocaleDateString('fr-FR')}</span>
           </div>
         </div>
       </div>
