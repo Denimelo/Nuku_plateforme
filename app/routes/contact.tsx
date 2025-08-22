@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from "react";
+import { ContactFormSection } from "~/components/home/contact/ContactFormSection";
+import { EquipeSection } from "~/components/home/contact/EquipeSection";
+import { Footer } from "~/components/home/contact/Footer";
+import { HeroSection } from "~/components/home/contact/HeroSection";
+import { LocalisationSection } from "~/components/home/contact/LocalisationSection";
+import { NewsletterCTASection } from "~/components/home/contact/NewsletterCTASection";
+import { ReseauxFAQSection } from "~/components/home/contact/ReseauxFAQSection";
 import { Header } from "~/components/layout/Header";
-import { Footer } from "~/components/layout/Footer";
-import { HeroSection } from "~/components/home/HeroSection";
-import { CardsSection } from "~/components/home/CardsSection";
-import { SavoirFaireSection } from "~/components/home/SavoirFaireSection";
-import { HowItWorksSection } from "~/components/home/HowItWorksSection";
-import { SuccessStoriesSection } from "~/components/home/SuccessStoriesSection";
-import { CTASection } from "~/components/home/CTASection";
-
 
 // Hook pour les animations au scroll
 const useScrollAnimation = () => {
@@ -37,27 +36,19 @@ const useScrollAnimation = () => {
   return visibleSections;
 };
 
-const HomePage = () => {
+export default function Contact() {
   const visibleSections = useScrollAnimation();
 
   return (
     <div className="min-h-screen bg-white">
       <Header />
       <HeroSection />
-      <CardsSection isVisible={visibleSections.has("cards-section")} />
-      <SavoirFaireSection
-        isVisible={visibleSections.has("savoir-faire-section")}
-      />
-      <HowItWorksSection
-        isVisible={visibleSections.has("how-it-works-section")}
-      />
-      <SuccessStoriesSection
-        isVisible={visibleSections.has("success-stories-section")}
-      />
-      <CTASection isVisible={visibleSections.has("cta-section")} />
+      <ContactFormSection isVisible={visibleSections.has("contact-form")} />
+      <EquipeSection isVisible={visibleSections.has("equipe")} />
+      <LocalisationSection isVisible={visibleSections.has("localisation")} />
+      <ReseauxFAQSection isVisible={visibleSections.has("reseaux-faq")} />
+      <NewsletterCTASection isVisible={visibleSections.has("newsletter-cta")} />
       <Footer />
     </div>
   );
-};
-
-export default HomePage;
+}

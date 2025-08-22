@@ -1,3 +1,5 @@
+
+
 export function EntrepreneursCard() {
   return (
     <div className="bg-gradient-to-br from-yellow-300 to-yellow-400 p-8 rounded-lg transform hover:scale-105 transition-all duration-300 shadow-lg">

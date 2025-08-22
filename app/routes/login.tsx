@@ -1,688 +1,394 @@
 import React, { useState, useEffect } from "react";
-import { Form, useNavigate, useActionData, useSearchParams } from "@remix-run/react";
-import type { ActionFunctionArgs } from "@remix-run/node";
-import { json } from "@remix-run/node";
-import { authServerAPI } from "~/utils/api.server";
-import { createUserSession } from "~/utils/session.server";
+import { Header } from "~/components/layout/Header";
+import { HeroSection } from "~/components/home/HeroSection";
+import { CardsSection } from "~/components/home/CardsSection";
+import { SavoirFaireSection } from "~/components/home/SavoirFaireSection";
 
-// Gestion du blocage des tentatives
-const FAILED_ATTEMPTS_STORAGE_KEY = "failed_login_attempts";
-const BLOCKED_UNTIL_STORAGE_KEY = "blocked_until";
+// Hook pour les animations au scroll
+const useScrollAnimation = () => {
+  const [visibleSections, setVisibleSections] = useState(new Set());
 
-interface FailedAttempt {
-  email: string;
-  count: number;
-  lastAttempt: number;
-  blockedUntil?: number;
-}
-
-function getFailedAttempts(): Record<string, FailedAttempt> {
-  if (typeof window === "undefined") return {};
-  
-  try {
-    const stored = localStorage.getItem(FAILED_ATTEMPTS_STORAGE_KEY);
-    return stored ? JSON.parse(stored) : {};
-  } catch {
-    return {};
-  }
-}
-
-function updateFailedAttempts(email: string, increment: boolean = true) {
-  if (typeof window === "undefined") return;
-  
-  const attempts = getFailedAttempts();
-  const now = Date.now();
-  
-  if (!attempts[email]) {
-    attempts[email] = { email, count: 0, lastAttempt: now };
-  }
-  
-  if (increment) {
-    attempts[email].count += 1;
-    attempts[email].lastAttempt = now;
-    
-    // Blocage selon les règles
-    if (attempts[email].count === 3) {
-      // A2 : Blocage 5 minutes après 2 échecs (3ème tentative)
-      attempts[email].blockedUntil = now + (5 * 60 * 1000);
-    } else if (attempts[email].count >= 4) {
-      // E1 : Blocage 4 heures après 3 échecs (4ème tentative et plus)
-      attempts[email].blockedUntil = now + (4 * 60 * 60 * 1000);
-    }
-  } else {
-    // Réinitialiser en cas de succès
-    delete attempts[email];
-  }
-  
-  localStorage.setItem(FAILED_ATTEMPTS_STORAGE_KEY, JSON.stringify(attempts));
-}
-
-function checkIfBlocked(email: string): { isBlocked: boolean; remainingTime?: string } {
-  if (typeof window === "undefined") return { isBlocked: false };
-  
-  const attempts = getFailedAttempts();
-  const userAttempts = attempts[email];
-  
-  if (!userAttempts || !userAttempts.blockedUntil) {
-    return { isBlocked: false };
-  }
-  
-  const now = Date.now();
-  
-  if (now < userAttempts.blockedUntil) {
-    const remainingMs = userAttempts.blockedUntil - now;
-    const remainingMinutes = Math.ceil(remainingMs / 1000 / 60);
-    
-    // Calculer heures et minutes
-    const hours = Math.floor(remainingMinutes / 60);
-    const minutes = remainingMinutes % 60;
-    
-    // Formater le texte
-    let timeText = "";
-    if (hours > 0) {
-      timeText += `${hours} heure${hours > 1 ? 's' : ''}`;
-      if (minutes > 0) {
-        timeText += ` ${minutes} minute${minutes > 1 ? 's' : ''}`;
-      }
-    } else {
-      timeText = `${minutes} minute${minutes > 1 ? 's' : ''}`;
-    }
-    
-    return { 
-      isBlocked: true, 
-      remainingTime: timeText
-    };
-  }
-  
-  // Le blocage est expiré, nettoyer
-  delete attempts[email];
-  localStorage.setItem(FAILED_ATTEMPTS_STORAGE_KEY, JSON.stringify(attempts));
-  
-  return { isBlocked: false };
-}
-
-// Action pour gérer la soumission du formulaire
-export async function action({ request }: ActionFunctionArgs) {
-  const formData = await request.formData();
-  const email = formData.get("email") as string;
-  const password = formData.get("password") as string;
-
-  // E2 : Validation des champs vides
-  if (!email && !password) {
-    return json({ 
-      error: "Veuillez remplir tous les champs obligatoires",
-      type: "validation"
-    }, { status: 400 });
-  }
-  
-  if (!email) {
-    return json({ 
-      error: "L'adresse email est requise",
-      type: "validation"
-    }, { status: 400 });
-  }
-  
-  if (!password) {
-    return json({ 
-      error: "Le mot de passe est requis",
-      type: "validation"
-    }, { status: 400 });
-  }
-
-  try {
-    const response = await authServerAPI.login(email, password);
-    
-    console.log("Response from API:", response); // Debug
-    
-    // Vérifier que la réponse a la structure attendue
-    if (!response.access_token || !response.user_type || !response.user_id) {
-      console.error("Invalid response structure:", response);
-      return json({ 
-        error: "Structure de réponse invalide",
-        type: "system"
-      }, { status: 400 });
-    }
-    
-    // Créer un objet utilisateur temporaire avec les données disponibles
-    const tempUser = {
-      user_id: response.user_id,
-      user_type: response.user_type,
-      email: email,
-      first_name: "",
-      last_name: "",
-      status: "active",
-      created_at: new Date().toISOString()
-    };
-    
-    // Déterminer la redirection selon le type d'utilisateur
-    let redirectTo = "/dashboard";
-    switch (response.user_type) {
-      case "admin":
-        redirectTo = "/admin/dashboard";
-        break;
-      case "expert":
-        redirectTo = "/expert/dashboard";
-        break;
-      case "entrepreneur":
-        redirectTo = "/entrepreneur/dashboard";
-        break;
-      default:
-        redirectTo = "/dashboard";
-    }
-    
-    return createUserSession(response.access_token, tempUser, redirectTo);
-  } catch (error: any) {
-    console.error("Login error:", error);
-    
-    // Gestion des erreurs spécifiques selon le cas d'utilisation
-    let errorMessage = "";
-    let errorType = "auth";
-    
-    if (error.message?.includes("suspended") || error.message?.includes("suspendu")) {
-      // E3 : Compte suspendu
-      errorMessage = "Votre compte est suspendu. Veuillez contacter l'administrateur.";
-      errorType = "suspended";
-    } else if (error.message?.includes("Invalid") || error.message?.includes("incorrect") || error.message?.includes("wrong")) {
-      // A1 & E4 : Informations incorrectes
-      errorMessage = "Email ou mot de passe incorrect. Veuillez vérifier vos informations.";
-      errorType = "credentials";
-    } else {
-      // Erreur générique
-      errorMessage = error.message || "Erreur de connexion. Veuillez réessayer.";
-    }
-    
-    return json(
-      { 
-        error: errorMessage,
-        type: errorType,
-        email: email // Pour le tracking côté client
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setVisibleSections((prev) => new Set([...prev, entry.target.id]));
+          }
+        });
       },
-      { status: 401 }
+      {
+        threshold: 0.1,
+        rootMargin: "-50px",
+      }
     );
-  }
-}
 
-export default function Login() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [blockedInfo, setBlockedInfo] = useState<{isBlocked: boolean; remainingTime?: string}>({ isBlocked: false });
-  const actionData = useActionData<typeof action>();
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
+    const sections = document.querySelectorAll("[data-animate]");
+    sections.forEach((section) => observer.observe(section));
 
-  // Messages de succès basés sur les paramètres URL
-  const message = searchParams.get("message");
-  const getSuccessMessage = () => {
-    switch (message) {
-      case "registration_complete":
-        return "Inscription terminée avec succès ! Vous pouvez maintenant vous connecter.";
-      case "password_reset_success":
-        return "Mot de passe réinitialisé avec succès ! Vous pouvez maintenant vous connecter.";
-      default:
-        return null;
-    }
-  };
+    return () => observer.disconnect();
+  }, []);
 
-  const successMessage = getSuccessMessage();
+  return visibleSections;
+};
 
-  // Gestion des erreurs avec compteur de tentatives
-  React.useEffect(() => {
-    if (actionData?.error && actionData?.type === "credentials" && actionData?.email) {
-      const email = actionData.email as string;
-      updateFailedAttempts(email, true);
-      
-      // Vérifier le statut de blocage
-      const blockStatus = checkIfBlocked(email);
-      setBlockedInfo(blockStatus);
-    } else if (actionData && !actionData.error) {
-      // Connexion réussie, nettoyer les tentatives
-      if (actionData?.email) {
-        updateFailedAttempts(actionData.email as string, false);
-      }
-    }
-  }, [actionData]);
-
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    setIsLoading(true);
-    
-    // Vérifier le blocage avant soumission
-    const formData = new FormData(event.currentTarget);
-    const email = formData.get("email") as string;
-    
-    if (email) {
-      const blockStatus = checkIfBlocked(email);
-      setBlockedInfo(blockStatus);
-      
-      if (blockStatus.isBlocked) {
-        event.preventDefault();
-        setIsLoading(false);
-        return;
-      }
-    }
-
-    setTimeout(() => {
-      setIsLoading(false);
-    }, 10000); 
-  };
-
-  // Message d'erreur personnalisé selon le type
-  const getErrorMessage = () => {
-    if (!actionData?.error) return null;
-    
-    switch (actionData.type) {
-      case "validation":
-        return {
-          title: "Champs requis",
-          message: actionData.error,
-          color: "orange"
-        };
-      case "suspended":
-        return {
-          title: "Compte suspendu",
-          message: actionData.error,
-          color: "purple"
-        };
-      case "credentials":
-        const attempts = getFailedAttempts();
-        const userAttempts = attempts[actionData.email as string]?.count || 0;
-        
-        let message = actionData.error;
-        if (userAttempts === 1) {
-          message += " (1ère tentative échouée)";
-        } else if (userAttempts === 2) {
-          message += " (2ème tentative échouée - Attention : le prochain échec entraînera un blocage de 5 minutes)";
-        }
-        
-        return {
-          title: "Erreur d'authentification",
-          message,
-          color: "red"
-        };
-      default:
-        return {
-          title: "Erreur",
-          message: actionData.error,
-          color: "red"
-        };
-    }
-  };
-
-  const errorInfo = getErrorMessage();
+// Comment ça marche Section
+const HowItWorksSection = ({ isVisible }: { isVisible: boolean }) => {
+  const steps = [
+    {
+      step: "01",
+      title: "Inscription",
+      description:
+        "Créez votre compte et choisissez votre parcours d'accompagnement selon vos besoins.",
+    },
+    {
+      step: "02",
+      title: "Formation",
+      description:
+        "Suivez nos modules de formation pratiques avec un mentor dédié à vos côtés.",
+    },
+    {
+      step: "03",
+      title: "Mise en pratique",
+      description:
+        "Travaillez sur des projets réels et construisez votre entreprise étape par étape.",
+    },
+    {
+      step: "04",
+      title: "Financement",
+      description:
+        "Accédez à notre réseau d'investisseurs et décrochez le financement pour votre startup.",
+    },
+  ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-gray-50 relative overflow-hidden">
-      
-      {/* Éléments décoratifs arrière-plan */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-gradient-to-br from-teal-400/20 to-green-400/20 rounded-full blur-3xl"></div>
-        <div className="absolute top-1/3 -left-32 w-80 h-80 bg-gradient-to-tr from-slate-600/15 to-teal-500/15 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-20 right-1/4 w-64 h-64 bg-gradient-to-tl from-green-400/10 to-teal-400/10 rounded-full blur-2xl"></div>
+    <section
+      id="how-it-works-section"
+      data-animate
+      className={`px-6 py-16 max-w-7xl mx-auto transition-all duration-1000 ${
+        isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
+      }`}
+    >
+      <div className="text-center mb-16">
+        <h2 className="text-3xl lg:text-4xl font-bold text-[#0B2749] mb-4">
+          Comment ça marche ?
+        </h2>
+        <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+          Un processus simple et efficace pour transformer votre idée en
+          entreprise prospère.
+        </p>
       </div>
 
-      <div className="relative flex min-h-screen">
-        
-        {/* Section gauche - Branding */}
-        <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-slate-800 via-slate-700 to-teal-800 items-center justify-center p-12 relative overflow-hidden">
-          
-          {/* Motifs géométriques */}
-          <div className="absolute inset-0">
-            <div className="absolute top-20 left-20 w-32 h-32 border border-teal-400/20 rounded-full"></div>
-            <div className="absolute bottom-32 right-16 w-24 h-24 bg-gradient-to-r from-teal-400/10 to-green-400/10 rounded-lg transform rotate-45"></div>
-            <div className="absolute top-1/2 left-10 w-16 h-16 bg-gradient-to-br from-slate-500/20 to-teal-500/20 rounded-full"></div>
-          </div>
-          
-          <div className="relative z-10 text-center max-w-md">
-            {/* Logo NUKU amélioré */}
-            <div className="mb-12">
-              <div className="inline-flex items-center justify-center mb-8">
-                <div className="relative group">
-                  {/* Effet de halo lumineux */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-teal-400 to-green-400 rounded-3xl blur-xl opacity-30 group-hover:opacity-50 transition-all duration-700 animate-pulse"></div>
-                  
-                  {/* Conteneur principal du logo */}
-                  <div className="relative bg-white/10 backdrop-blur-lg border border-white/20 rounded-3xl p-8 shadow-2xl group-hover:shadow-3xl transition-all duration-500 group-hover:scale-105">
-                    {/* Gradient interne subtil */}
-                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent rounded-3xl"></div>
-                    
-                    {/* Logo */}
-                    <div className="relative z-10">
-                      <img
-                        className="h-16 w-auto filter brightness-110 drop-shadow-lg"
-                        src="/images/logo_nuku.webp"
-                        alt="NUKU"
-                      />
-                    </div>
-                    
-                    {/* Points décoratifs */}
-                    <div className="absolute -top-2 -right-2 w-4 h-4 bg-gradient-to-r from-teal-400 to-green-400 rounded-full opacity-60 animate-ping"></div>
-                    <div className="absolute -bottom-2 -left-2 w-3 h-3 bg-gradient-to-r from-green-400 to-teal-400 rounded-full opacity-40"></div>
-                  </div>
-                </div>
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+        {steps.map((step, index) => (
+          <div key={index} className="text-center group">
+            <div className="relative mb-6">
+              <div className="w-20 h-20 bg-gradient-to-br from-[#0B2749] to-blue-600 rounded-full mx-auto flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+                <span className="text-2xl font-bold text-white">
+                  {step.step}
+                </span>
               </div>
+              {index < steps.length - 1 && (
+                <div className="hidden lg:block absolute top-10 left-full w-full h-0.5 bg-gray-200">
+                  <div className="h-full bg-gradient-to-r from-[#0B2749] to-transparent w-1/2"></div>
+                </div>
+              )}
             </div>
-            
-            <h1 className="text-4xl font-bold text-white mb-6 leading-tight">
-              Bienvenue sur
-              <span className="block bg-gradient-to-r from-teal-400 to-green-400 bg-clip-text text-transparent">
-                NUKU Platform
-              </span>
-            </h1>
-            
-            <p className="text-slate-300 text-lg leading-relaxed mb-8">
-              Votre plateforme d'innovation pour connecter entrepreneurs et experts
+            <h3 className="text-xl font-bold text-[#0B2749] mb-3">
+              {step.title}
+            </h3>
+            <p className="text-gray-600 text-sm leading-relaxed">
+              {step.description}
             </p>
-            
-            <div className="flex justify-center space-x-8 text-slate-400">
-              <div className="text-center group">
-                <div className="w-12 h-12 bg-teal-500/20 rounded-lg flex items-center justify-center mb-2 mx-auto group-hover:bg-teal-500/30 transition-all duration-300 group-hover:scale-110">
-                  <svg className="w-6 h-6 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+};
+
+// Success Stories Section
+const SuccessStoriesSection = ({ isVisible }: { isVisible: boolean }) => {
+  const stories = [
+    {
+      name: "Marie Dubois",
+      company: "EcoTech Solutions",
+      testimonial:
+        "Grâce à NUKU, j'ai pu transformer mon idée écologique en startup rentable. Le mentorat et les formations pratiques ont été déterminants.",
+      funding: "500K FCFA levés",
+      avatar:
+        "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=150&h=150&fit=crop&crop=face",
+    },
+    {
+      name: "Thomas Martin",
+      company: "HealthApp",
+      testimonial:
+        "Le programme NUKU m'a donné tous les outils nécessaires pour développer ma solution de santé digitale. Aujourd'hui, nous accompagnons plus de 10 000 patients.",
+      funding: "1.2M FCFA levés",
+      avatar:
+        "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face",
+    },
+    {
+      name: "Sophie Chen",
+      company: "EdTech Pro",
+      testimonial:
+        "La mise en relation avec les investisseurs via NUKU a été un tournant. Nous avons pu accélérer notre développement et notre expansion internationale.",
+      funding: "800K FCFA levés",
+      avatar:
+        "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop&crop=face",
+    },
+  ];
+
+  return (
+    <section
+      id="success-stories-section"
+      data-animate
+      className={`px-6 py-16 bg-gray-50 transition-all duration-1000 ${
+        isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
+      }`}
+    >
+      <div className="max-w-7xl mx-auto">
+        <div className="text-center mb-16">
+          <h2 className="text-3xl lg:text-4xl font-bold text-[#0B2749] mb-4">
+            Ils ont réussi avec NUKU
+          </h2>
+          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            Découvrez les success stories de nos entrepreneurs qui ont
+            transformé leurs idées en entreprises prospères.
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-8">
+          {stories.map((story, index) => (
+            <div
+              key={index}
+              className="bg-white rounded-xl p-8 shadow-sm hover:shadow-lg transition-all duration-300 transform hover:scale-105"
+            >
+              <div className="flex items-center mb-6">
+                <img
+                  src={story.avatar}
+                  alt={story.name}
+                  className="w-16 h-16 rounded-full object-cover mr-4"
+                />
+                <div>
+                  <h3 className="font-bold text-[#0B2749]">{story.name}</h3>
+                  <p className="text-gray-600 text-sm">{story.company}</p>
+                  <p className="text-green-600 text-sm font-semibold">
+                    {story.funding}
+                  </p>
                 </div>
-                <span className="text-sm group-hover:text-teal-300 transition-colors">Innovation</span>
               </div>
-              <div className="text-center group">
-                <div className="w-12 h-12 bg-green-500/20 rounded-lg flex items-center justify-center mb-2 mx-auto group-hover:bg-green-500/30 transition-all duration-300 group-hover:scale-110">
-                  <svg className="w-6 h-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                  </svg>
-                </div>
-                <span className="text-sm group-hover:text-green-300 transition-colors">Collaboration</span>
-              </div>
-              <div className="text-center group">
-                <div className="w-12 h-12 bg-slate-500/20 rounded-lg flex items-center justify-center mb-2 mx-auto group-hover:bg-slate-400/30 transition-all duration-300 group-hover:scale-110">
-                  <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <span className="text-sm group-hover:text-slate-300 transition-colors">Excellence</span>
-              </div>
+              <p className="text-gray-600 italic text-sm leading-relaxed">
+                "{story.testimonial}"
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
+
+// CTA Section
+const CTASection = ({ isVisible }: { isVisible: boolean }) => {
+  return (
+    <section
+      id="cta-section"
+      data-animate
+      className={`px-6 py-20 bg-gradient-to-br from-[#0B2749] to-blue-600 transition-all duration-1000 ${
+        isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
+      }`}
+    >
+      <div className="max-w-4xl mx-auto text-center">
+        <h2 className="text-3xl lg:text-4xl font-bold text-white mb-6">
+          Prêt à transformer votre idée en succès ?
+        </h2>
+        <p className="text-xl text-blue-100 mb-8 leading-relaxed">
+          Rejoignez les centaines d'entrepreneurs qui ont choisi NUKU pour
+          développer leur startup.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="/signup"
+            className="bg-white text-[#0B2749] px-8 py-4 rounded-lg font-semibold hover:bg-gray-100 transition-all duration-300 transform hover:scale-105 shadow-lg"
+          >
+            Commencer maintenant
+          </a>
+          <a
+            href="#"
+            className="border-2 border-white text-white px-8 py-4 rounded-lg font-semibold hover:bg-white hover:text-[#0B2749] transition-all duration-300"
+          >
+            En savoir plus
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+// Footer Component
+const Footer = () => {
+  return (
+    <footer className="bg-gray-900 text-white px-6 py-16">
+      <div className="max-w-7xl mx-auto">
+        <div className="grid md:grid-cols-4 gap-8 mb-12">
+          {/* Logo et description */}
+          <div className="col-span-1">
+            <img
+              src="/images/logo_nuku.webp"
+              alt="NUKU Logo"
+              className="h-8 w-auto mb-4 filter brightness-0 invert"
+            />
+            <p className="text-gray-400 text-sm leading-relaxed">
+              NUKU accompagne les entrepreneurs dans la création et le
+              développement de leurs startups avec des programmes sur mesure.
+            </p>
+          </div>
+
+          {/* Liens rapides */}
+          <div>
+            <h3 className="font-bold text-white mb-4">Plateforme</h3>
+            <ul className="space-y-2 text-sm">
+              <li>
+                <a
+                  href="#"
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Formations
+                </a>
+              </li>
+              <li>
+                <a
+                  href="#"
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Mentorat
+                </a>
+              </li>
+              <li>
+                <a
+                  href="#"
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Financement
+                </a>
+              </li>
+              <li>
+                <a
+                  href="#"
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Réseau
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          {/* Support */}
+          <div>
+            <h3 className="font-bold text-white mb-4">Support</h3>
+            <ul className="space-y-2 text-sm">
+              <li>
+                <a
+                  href="#"
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Centre d'aide
+                </a>
+              </li>
+              <li>
+                <a
+                  href="#"
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Contact
+                </a>
+              </li>
+              <li>
+                <a
+                  href="#"
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  FAQ
+                </a>
+              </li>
+              <li>
+                <a
+                  href="#"
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  Documentation
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          {/* Contact */}
+          <div>
+            <h3 className="font-bold text-white mb-4">Contact</h3>
+            <div className="space-y-2 text-sm text-gray-400">
+              <p>contact@nuku.io</p>
+              <p>+228 XX XX XX XX</p>
+              <p>
+                Lomé, Maritime
+                <br />
+                Togo
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Section droite - Formulaire */}
-        <div className="w-full lg:w-1/2 flex items-center justify-center p-8 lg:p-12">
-          <div className="w-full max-w-md">
-            
-            {/* Logo mobile amélioré */}
-            <div className="lg:hidden text-center mb-12">
-              <div className="inline-flex items-center justify-center mb-6">
-                <div className="relative group">
-                  {/* Effet de halo pour mobile */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-teal-400 to-green-400 rounded-2xl blur-lg opacity-20 group-hover:opacity-30 transition-all duration-500"></div>
-                  
-                  {/* Conteneur du logo mobile */}
-                  <div className="relative bg-white/80 backdrop-blur-sm border border-white/50 rounded-2xl p-6 shadow-xl group-hover:shadow-2xl transition-all duration-300">
-                    <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent rounded-2xl"></div>
-                    <img
-                      className="relative z-10 h-12 w-auto"
-                      src="/images/logo_nuku.webp"
-                      alt="NUKU"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Carte du formulaire */}
-            <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-white/50 p-8 lg:p-10">
-              
-              {/* En-tête */}
-              <div className="text-center mb-8">
-                <h2 className="text-3xl font-bold text-slate-800 mb-3">
-                  Connexion
-                </h2>
-                <p className="text-slate-600 text-lg">
-                  Accédez à votre espace personnel
-                </p>
-              </div>
-
-              {/* Message de succès */}
-              {successMessage && (
-                <div className="mb-6 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200/50 rounded-2xl p-4">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <div className="ml-3">
-                      <p className="text-green-800 font-medium">{successMessage}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Message de blocage */}
-              {blockedInfo.isBlocked && (
-                <div className="mb-6 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200/50 rounded-2xl p-4">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <svg className="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H9m3-7V6m0 0V4m0 2h2m-2 0H9" />
-                      </svg>
-                    </div>
-                    <div className="ml-3">
-                      <p className="text-purple-800 font-semibold">Accès temporairement bloqué</p>
-                      <p className="text-purple-700 text-sm mt-1">
-                        Trop de tentatives échouées. Veuillez patienter {blockedInfo.remainingTime} avant de réessayer.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}                      
-
-              {/* Messages d'erreur personnalisés */}
-              {errorInfo && !blockedInfo.isBlocked && (
-                <div className={`mb-6 bg-gradient-to-r rounded-2xl p-4 border ${
-                  errorInfo.color === "orange" 
-                    ? "from-orange-50 to-amber-50 border-orange-200/50" 
-                    : errorInfo.color === "purple"
-                    ? "from-purple-50 to-violet-50 border-purple-200/50"
-                    : "from-red-50 to-rose-50 border-red-200/50"
-                }`}>
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <svg className={`h-6 w-6 ${
-                        errorInfo.color === "orange" 
-                          ? "text-orange-600" 
-                          : errorInfo.color === "purple"
-                          ? "text-purple-600"
-                          : "text-red-500"
-                      }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <div className="ml-3">
-                      <p className={`font-semibold ${
-                        errorInfo.color === "orange" 
-                          ? "text-orange-800" 
-                          : errorInfo.color === "purple"
-                          ? "text-purple-800"
-                          : "text-red-800"
-                      }`}>{errorInfo.title}</p>
-                      <p className={`text-sm mt-1 ${
-                        errorInfo.color === "orange" 
-                          ? "text-orange-700" 
-                          : errorInfo.color === "purple"
-                          ? "text-purple-700"
-                          : "text-red-700"
-                      }`}>{errorInfo.message}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Formulaire */}
-              <Form method="post" className="space-y-6" onSubmit={handleSubmit}>
-                
-                {/* Champ Email */}
-                <div>
-                  <label htmlFor="email" className="block text-sm font-semibold text-slate-700 mb-3">
-                    Adresse email *
-                  </label>
-                  <div className="relative group">
-                    <input
-                      id="email"
-                      name="email"
-                      type="email"
-                      autoComplete="email"
-                      required
-                      disabled={blockedInfo.isBlocked}
-                      className={`block w-full px-4 py-4 bg-white border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300 text-base group-hover:border-slate-300 ${
-                        blockedInfo.isBlocked ? "opacity-50 cursor-not-allowed" : ""
-                      }`}
-                      placeholder="votre@email.com"
-                    />
-                    <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
-                      <svg className="h-5 w-5 text-slate-400 group-focus-within:text-teal-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Champ Mot de passe */}
-                <div>
-                  <label htmlFor="password" className="block text-sm font-semibold text-slate-700 mb-3">
-                    Mot de passe *
-                  </label>
-                  <div className="relative group">
-                    <input
-                      id="password"
-                      name="password"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="current-password"
-                      required
-                      disabled={blockedInfo.isBlocked}
-                      className={`block w-full px-4 py-4 bg-white border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300 text-base pr-12 group-hover:border-slate-300 ${
-                        blockedInfo.isBlocked ? "opacity-50 cursor-not-allowed" : ""
-                      }`}
-                      placeholder="••••••••"
-                    />
-                    <button
-                      type="button"
-                      disabled={blockedInfo.isBlocked}
-                      className="absolute inset-y-0 right-0 pr-4 flex items-center"
-                      onClick={() => setShowPassword(!showPassword)}
-                    >
-                      {showPassword ? (
-                        <svg className="h-5 w-5 text-slate-400 hover:text-slate-600 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
-                        </svg>
-                      ) : (
-                        <svg className="h-5 w-5 text-slate-400 hover:text-slate-600 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Options */}
-                <div className="flex items-center justify-between pt-2">
-                  <div className="flex items-center">
-                    <input
-                      id="remember-me"
-                      name="remember-me"
-                      type="checkbox"
-                      disabled={blockedInfo.isBlocked}
-                      className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300 rounded transition-colors disabled:opacity-50"
-                    />
-                    <label htmlFor="remember-me" className="ml-3 block text-sm text-slate-600 font-medium">
-                      Se souvenir de moi
-                    </label>
-                  </div>
-
-                  <div className="text-sm">
-                    <a 
-                      href="/forgot-password" 
-                      className="font-semibold text-teal-600 hover:text-teal-500 transition-colors"
-                    >
-                      Mot de passe oublié ?
-                    </a>
-                  </div>
-                </div>
-
-                {/* Bouton de connexion */}
-                <button
-                  type="submit"
-                  disabled={isLoading || blockedInfo.isBlocked}
-                  className={`group relative w-full flex justify-center items-center py-4 px-6 border border-transparent text-base font-semibold rounded-xl text-white transition-all duration-300 shadow-lg mt-8 ${
-                    isLoading || blockedInfo.isBlocked
-                      ? "bg-slate-400 cursor-not-allowed opacity-50"
-                      : "bg-gradient-to-r from-slate-700 to-teal-600 hover:from-slate-800 hover:to-teal-700 focus:outline-none focus:ring-4 focus:ring-teal-200 hover:shadow-xl transform hover:scale-[1.02]"
-                  }`}
-                >
-                  {isLoading ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Connexion en cours...
-                    </>
-                  ) : blockedInfo.isBlocked ? (
-                    <>
-                      <svg className="mr-3 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H9m3-7V6m0 0V4m0 2h2m-2 0H9" />
-                      </svg>
-                      Accès bloqué
-                    </>
-                  ) : (
-                    <>
-                      Se connecter
-                      <svg className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                      </svg>
-                    </>
-                  )}
-                </button>
-              </Form>
-
-              {/* Informations de sécurité */}
-              <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                <h4 className="text-sm font-semibold text-slate-700 mb-2 flex items-center">
-                  <svg className="mr-2 h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.18-4.18a1 1 0 00-1.414 0l-5.89 5.89A2 2 0 0010 14h-4a2 2 0 01-2-2v-4a2 2 0 012-2h4a2 2 0 001.414.586l5.89-5.89a1 1 0 000-1.414z" />
-                  </svg>
-                  Politique de sécurité
-                </h4>
-                <ul className="text-xs text-slate-600 space-y-1">
-                  <li>• 2 tentatives échouées : avertissement</li>
-                  <li>• 3 tentatives échouées : blocage de 5 minutes</li>
-                  <li>• 4+ tentatives échouées : blocage de 4 heures</li>
-                </ul>
-              </div>
-
-              {/* Liens du bas */}
-              <div className="text-center space-y-4 pt-8 border-t border-slate-100 mt-8">
-                <p className="text-slate-600">
-                  Pas encore de compte ?{" "}
-                  <a
-                    href="/signup"
-                    className="font-semibold text-teal-600 hover:text-teal-500 transition-colors"
-                  >
-                    Créer un compte
-                  </a>
-                </p>
-                
-                <a
-                  href="/"
-                  className="inline-flex items-center text-sm text-slate-500 hover:text-slate-700 transition-colors"
-                >
-                  <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                  </svg>
-                  Retour à l'accueil
-                </a>
-              </div>
+        {/* Ligne de séparation */}
+        <div className="border-t border-gray-800 pt-8">
+          <div className="flex flex-col md:flex-row justify-between items-center">
+            <p className="text-gray-400 text-sm mb-4 md:mb-0">
+              © 2024 NUKU. Tous droits réservés.
+            </p>
+            <div className="flex space-x-6 text-sm">
+              <a
+                href="#"
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                Mentions légales
+              </a>
+              <a
+                href="#"
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                Politique de confidentialité
+              </a>
+              <a
+                href="#"
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                CGU
+              </a>
             </div>
           </div>
         </div>
       </div>
+    </footer>
+  );
+};
+
+// Main HomePage Component
+export default function Index() {
+  const visibleSections = useScrollAnimation();
+
+  return (
+    <div className="min-h-screen bg-white">
+      <Header />
+      <HeroSection />
+      <CardsSection />
+      <SavoirFaireSection />
+      <HowItWorksSection
+        isVisible={visibleSections.has("how-it-works-section")}
+      />
+      <SuccessStoriesSection
+        isVisible={visibleSections.has("success-stories-section")}
+      />
+      <CTASection isVisible={visibleSections.has("cta-section")} />
+      <Footer />
     </div>
   );
 }

@@ -1,8 +1,10 @@
+
+
 export function HeroSection() {
   return (
     <section className="flex flex-col lg:flex-row items-center justify-between px-6 py-16 lg:py-24 max-w-7xl mx-auto">
       <div className="lg:w-1/2 lg:pr-12 mb-8 lg:mb-0">
-        <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6 leading-tight font-sora">
+        <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6 leading-tight">
           NUKU, de l'idée au financement : votre startup mérite une vraie
           propulsion.
         </h1>
@@ -13,7 +15,7 @@ export function HeroSection() {
         </p>
         <a
           href="/signup"
-          className="inline-block bg-blue-900 text-white px-8 py-4 rounded-lg font-semibold hover:bg-blue-800 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+          className="inline-block bg-[#0B2749] text-white px-8 py-4 rounded-lg font-semibold hover:bg-[#0a2240] transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
         >
           Commencer dès maintenant
         </a>
@@ -21,9 +23,9 @@ export function HeroSection() {
 
       <div className="lg:w-1/2">
         <img
-          src="../../images/banner_hero.webp"
+          src="/images/banner_hero.webp"
           alt="Équipe NUKU en collaboration"
-          className="w-full h-80 lg:h-96 object-cover rounded-lg shadow-lg"
+          className="w-full h-80 lg:h-96 object-cover rounded-lg shadow-lg transform hover:scale-105 transition-transform duration-500"
         />
       </div>
     </section>

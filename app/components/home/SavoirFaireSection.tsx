@@ -1,10 +1,20 @@
 import { FeatureCard } from "./FeatureCard";
 
-export function SavoirFaireSection() {
+interface SavoirFaireSectionProps {
+  isVisible: boolean;
+}
+
+export function SavoirFaireSection ({ isVisible }: SavoirFaireSectionProps) {
   return (
-    <section className="px-6 py-16 bg-gray-50">
+    <section
+      id="savoir-faire-section"
+      data-animate
+      className={`px-6 py-16 bg-gray-50 transition-all duration-1000 ${
+        isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
+      }`}
+    >
       <div className="max-w-7xl mx-auto text-center">
-        <h2 className="text-3xl lg:text-4xl font-bold text-blue-900 mb-4">
+        <h2 className="text-3xl lg:text-4xl font-bold text-[#0B2749] mb-4">
           Savoir. Faire. Savoir-faire.
         </h2>
         <p className="text-lg text-gray-600 mb-16 max-w-2xl mx-auto">
