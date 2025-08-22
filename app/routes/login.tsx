@@ -1,9 +1,105 @@
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Form, useNavigate, useActionData, useSearchParams } from "@remix-run/react";
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authServerAPI } from "~/utils/api.server";
 import { createUserSession } from "~/utils/session.server";
+
+// Gestion du blocage des tentatives
+const FAILED_ATTEMPTS_STORAGE_KEY = "failed_login_attempts";
+const BLOCKED_UNTIL_STORAGE_KEY = "blocked_until";
+
+interface FailedAttempt {
+  email: string;
+  count: number;
+  lastAttempt: number;
+  blockedUntil?: number;
+}
+
+function getFailedAttempts(): Record<string, FailedAttempt> {
+  if (typeof window === "undefined") return {};
+  
+  try {
+    const stored = localStorage.getItem(FAILED_ATTEMPTS_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+}
+
+function updateFailedAttempts(email: string, increment: boolean = true) {
+  if (typeof window === "undefined") return;
+  
+  const attempts = getFailedAttempts();
+  const now = Date.now();
+  
+  if (!attempts[email]) {
+    attempts[email] = { email, count: 0, lastAttempt: now };
+  }
+  
+  if (increment) {
+    attempts[email].count += 1;
+    attempts[email].lastAttempt = now;
+    
+    // Blocage selon les règles
+    if (attempts[email].count === 3) {
+      // A2 : Blocage 5 minutes après 2 échecs (3ème tentative)
+      attempts[email].blockedUntil = now + (5 * 60 * 1000);
+    } else if (attempts[email].count >= 4) {
+      // E1 : Blocage 4 heures après 3 échecs (4ème tentative et plus)
+      attempts[email].blockedUntil = now + (4 * 60 * 60 * 1000);
+    }
+  } else {
+    // Réinitialiser en cas de succès
+    delete attempts[email];
+  }
+  
+  localStorage.setItem(FAILED_ATTEMPTS_STORAGE_KEY, JSON.stringify(attempts));
+}
+
+function checkIfBlocked(email: string): { isBlocked: boolean; remainingTime?: string } {
+  if (typeof window === "undefined") return { isBlocked: false };
+  
+  const attempts = getFailedAttempts();
+  const userAttempts = attempts[email];
+  
+  if (!userAttempts || !userAttempts.blockedUntil) {
+    return { isBlocked: false };
+  }
+  
+  const now = Date.now();
+  
+  if (now < userAttempts.blockedUntil) {
+    const remainingMs = userAttempts.blockedUntil - now;
+    const remainingMinutes = Math.ceil(remainingMs / 1000 / 60);
+    
+    // Calculer heures et minutes
+    const hours = Math.floor(remainingMinutes / 60);
+    const minutes = remainingMinutes % 60;
+    
+    // Formater le texte
+    let timeText = "";
+    if (hours > 0) {
+      timeText += `${hours} heure${hours > 1 ? 's' : ''}`;
+      if (minutes > 0) {
+        timeText += ` ${minutes} minute${minutes > 1 ? 's' : ''}`;
+      }
+    } else {
+      timeText = `${minutes} minute${minutes > 1 ? 's' : ''}`;
+    }
+    
+    return { 
+      isBlocked: true, 
+      remainingTime: timeText
+    };
+  }
+  
+  // Le blocage est expiré, nettoyer
+  delete attempts[email];
+  localStorage.setItem(FAILED_ATTEMPTS_STORAGE_KEY, JSON.stringify(attempts));
+  
+  return { isBlocked: false };
+}
 
 // Action pour gérer la soumission du formulaire
 export async function action({ request }: ActionFunctionArgs) {
@@ -11,8 +107,26 @@ export async function action({ request }: ActionFunctionArgs) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
 
-  if (!email || !password) {
-    return json({ error: "Email et mot de passe requis" }, { status: 400 });
+  // E2 : Validation des champs vides
+  if (!email && !password) {
+    return json({ 
+      error: "Veuillez remplir tous les champs obligatoires",
+      type: "validation"
+    }, { status: 400 });
+  }
+  
+  if (!email) {
+    return json({ 
+      error: "L'adresse email est requise",
+      type: "validation"
+    }, { status: 400 });
+  }
+  
+  if (!password) {
+    return json({ 
+      error: "Le mot de passe est requis",
+      type: "validation"
+    }, { status: 400 });
   }
 
   try {
@@ -23,14 +137,17 @@ export async function action({ request }: ActionFunctionArgs) {
     // Vérifier que la réponse a la structure attendue
     if (!response.access_token || !response.user_type || !response.user_id) {
       console.error("Invalid response structure:", response);
-      return json({ error: "Structure de réponse invalide" }, { status: 400 });
+      return json({ 
+        error: "Structure de réponse invalide",
+        type: "system"
+      }, { status: 400 });
     }
     
     // Créer un objet utilisateur temporaire avec les données disponibles
     const tempUser = {
       user_id: response.user_id,
       user_type: response.user_type,
-      email: email, // On utilise l'email de connexion
+      email: email,
       first_name: "",
       last_name: "",
       status: "active",
@@ -56,9 +173,31 @@ export async function action({ request }: ActionFunctionArgs) {
     return createUserSession(response.access_token, tempUser, redirectTo);
   } catch (error: any) {
     console.error("Login error:", error);
+    
+    // Gestion des erreurs spécifiques selon le cas d'utilisation
+    let errorMessage = "";
+    let errorType = "auth";
+    
+    if (error.message?.includes("suspended") || error.message?.includes("suspendu")) {
+      // E3 : Compte suspendu
+      errorMessage = "Votre compte est suspendu. Veuillez contacter l'administrateur.";
+      errorType = "suspended";
+    } else if (error.message?.includes("Invalid") || error.message?.includes("incorrect") || error.message?.includes("wrong")) {
+      // A1 & E4 : Informations incorrectes
+      errorMessage = "Email ou mot de passe incorrect. Veuillez vérifier vos informations.";
+      errorType = "credentials";
+    } else {
+      // Erreur générique
+      errorMessage = error.message || "Erreur de connexion. Veuillez réessayer.";
+    }
+    
     return json(
-      { error: error.message || "Erreur de connexion" },
-      { status: 400 }
+      { 
+        error: errorMessage,
+        type: errorType,
+        email: email // Pour le tracking côté client
+      },
+      { status: 401 }
     );
   }
 }
@@ -66,6 +205,7 @@ export async function action({ request }: ActionFunctionArgs) {
 export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [blockedInfo, setBlockedInfo] = useState<{isBlocked: boolean; remainingTime?: string}>({ isBlocked: false });
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -85,9 +225,89 @@ export default function Login() {
 
   const successMessage = getSuccessMessage();
 
+  // Gestion des erreurs avec compteur de tentatives
+  React.useEffect(() => {
+    if (actionData?.error && actionData?.type === "credentials" && actionData?.email) {
+      const email = actionData.email as string;
+      updateFailedAttempts(email, true);
+      
+      // Vérifier le statut de blocage
+      const blockStatus = checkIfBlocked(email);
+      setBlockedInfo(blockStatus);
+    } else if (actionData && !actionData.error) {
+      // Connexion réussie, nettoyer les tentatives
+      if (actionData?.email) {
+        updateFailedAttempts(actionData.email as string, false);
+      }
+    }
+  }, [actionData]);
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     setIsLoading(true);
+    
+    // Vérifier le blocage avant soumission
+    const formData = new FormData(event.currentTarget);
+    const email = formData.get("email") as string;
+    
+    if (email) {
+      const blockStatus = checkIfBlocked(email);
+      setBlockedInfo(blockStatus);
+      
+      if (blockStatus.isBlocked) {
+        event.preventDefault();
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    setTimeout(() => {
+      setIsLoading(false);
+    }, 10000); 
   };
+
+  // Message d'erreur personnalisé selon le type
+  const getErrorMessage = () => {
+    if (!actionData?.error) return null;
+    
+    switch (actionData.type) {
+      case "validation":
+        return {
+          title: "Champs requis",
+          message: actionData.error,
+          color: "orange"
+        };
+      case "suspended":
+        return {
+          title: "Compte suspendu",
+          message: actionData.error,
+          color: "purple"
+        };
+      case "credentials":
+        const attempts = getFailedAttempts();
+        const userAttempts = attempts[actionData.email as string]?.count || 0;
+        
+        let message = actionData.error;
+        if (userAttempts === 1) {
+          message += " (1ère tentative échouée)";
+        } else if (userAttempts === 2) {
+          message += " (2ème tentative échouée - Attention : le prochain échec entraînera un blocage de 5 minutes)";
+        }
+        
+        return {
+          title: "Erreur d'authentification",
+          message,
+          color: "red"
+        };
+      default:
+        return {
+          title: "Erreur",
+          message: actionData.error,
+          color: "red"
+        };
+    }
+  };
+
+  const errorInfo = getErrorMessage();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-gray-50 relative overflow-hidden">
@@ -128,7 +348,7 @@ export default function Login() {
                     <div className="relative z-10">
                       <img
                         className="h-16 w-auto filter brightness-110 drop-shadow-lg"
-                        src="../../images/logo_nuku.webp"
+                        src="/images/logo_nuku.webp"
                         alt="NUKU"
                       />
                     </div>
@@ -197,7 +417,7 @@ export default function Login() {
                     <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent rounded-2xl"></div>
                     <img
                       className="relative z-10 h-12 w-auto"
-                      src="../../images/logo_nuku.webp"
+                      src="/images/logo_nuku.webp"
                       alt="NUKU"
                     />
                   </div>
@@ -234,17 +454,61 @@ export default function Login() {
                 </div>
               )}
 
-              {/* Message d'erreur */}
-              {actionData?.error && (
-                <div className="mb-6 bg-gradient-to-r from-red-50 to-rose-50 border border-red-200/50 rounded-2xl p-4">
+              {/* Message de blocage */}
+              {blockedInfo.isBlocked && (
+                <div className="mb-6 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200/50 rounded-2xl p-4">
                   <div className="flex items-center">
                     <div className="flex-shrink-0">
-                      <svg className="h-6 w-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H9m3-7V6m0 0V4m0 2h2m-2 0H9" />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-purple-800 font-semibold">Accès temporairement bloqué</p>
+                      <p className="text-purple-700 text-sm mt-1">
+                        Trop de tentatives échouées. Veuillez patienter {blockedInfo.remainingTime} avant de réessayer.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}                      
+
+              {/* Messages d'erreur personnalisés */}
+              {errorInfo && !blockedInfo.isBlocked && (
+                <div className={`mb-6 bg-gradient-to-r rounded-2xl p-4 border ${
+                  errorInfo.color === "orange" 
+                    ? "from-orange-50 to-amber-50 border-orange-200/50" 
+                    : errorInfo.color === "purple"
+                    ? "from-purple-50 to-violet-50 border-purple-200/50"
+                    : "from-red-50 to-rose-50 border-red-200/50"
+                }`}>
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0">
+                      <svg className={`h-6 w-6 ${
+                        errorInfo.color === "orange" 
+                          ? "text-orange-600" 
+                          : errorInfo.color === "purple"
+                          ? "text-purple-600"
+                          : "text-red-500"
+                      }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     </div>
                     <div className="ml-3">
-                      <p className="text-red-800 font-medium">{actionData.error}</p>
+                      <p className={`font-semibold ${
+                        errorInfo.color === "orange" 
+                          ? "text-orange-800" 
+                          : errorInfo.color === "purple"
+                          ? "text-purple-800"
+                          : "text-red-800"
+                      }`}>{errorInfo.title}</p>
+                      <p className={`text-sm mt-1 ${
+                        errorInfo.color === "orange" 
+                          ? "text-orange-700" 
+                          : errorInfo.color === "purple"
+                          ? "text-purple-700"
+                          : "text-red-700"
+                      }`}>{errorInfo.message}</p>
                     </div>
                   </div>
                 </div>
@@ -256,7 +520,7 @@ export default function Login() {
                 {/* Champ Email */}
                 <div>
                   <label htmlFor="email" className="block text-sm font-semibold text-slate-700 mb-3">
-                    Adresse email
+                    Adresse email *
                   </label>
                   <div className="relative group">
                     <input
@@ -265,7 +529,10 @@ export default function Login() {
                       type="email"
                       autoComplete="email"
                       required
-                      className="block w-full px-4 py-4 bg-white border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300 text-base group-hover:border-slate-300"
+                      disabled={blockedInfo.isBlocked}
+                      className={`block w-full px-4 py-4 bg-white border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300 text-base group-hover:border-slate-300 ${
+                        blockedInfo.isBlocked ? "opacity-50 cursor-not-allowed" : ""
+                      }`}
                       placeholder="votre@email.com"
                     />
                     <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
@@ -279,7 +546,7 @@ export default function Login() {
                 {/* Champ Mot de passe */}
                 <div>
                   <label htmlFor="password" className="block text-sm font-semibold text-slate-700 mb-3">
-                    Mot de passe
+                    Mot de passe *
                   </label>
                   <div className="relative group">
                     <input
@@ -288,11 +555,15 @@ export default function Login() {
                       type={showPassword ? "text" : "password"}
                       autoComplete="current-password"
                       required
-                      className="block w-full px-4 py-4 bg-white border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300 text-base pr-12 group-hover:border-slate-300"
+                      disabled={blockedInfo.isBlocked}
+                      className={`block w-full px-4 py-4 bg-white border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-teal-100 focus:border-teal-400 transition-all duration-300 text-base pr-12 group-hover:border-slate-300 ${
+                        blockedInfo.isBlocked ? "opacity-50 cursor-not-allowed" : ""
+                      }`}
                       placeholder="••••••••"
                     />
                     <button
                       type="button"
+                      disabled={blockedInfo.isBlocked}
                       className="absolute inset-y-0 right-0 pr-4 flex items-center"
                       onClick={() => setShowPassword(!showPassword)}
                     >
@@ -317,7 +588,8 @@ export default function Login() {
                       id="remember-me"
                       name="remember-me"
                       type="checkbox"
-                      className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300 rounded transition-colors"
+                      disabled={blockedInfo.isBlocked}
+                      className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-slate-300 rounded transition-colors disabled:opacity-50"
                     />
                     <label htmlFor="remember-me" className="ml-3 block text-sm text-slate-600 font-medium">
                       Se souvenir de moi
@@ -337,8 +609,12 @@ export default function Login() {
                 {/* Bouton de connexion */}
                 <button
                   type="submit"
-                  disabled={isLoading}
-                  className="group relative w-full flex justify-center items-center py-4 px-6 border border-transparent text-base font-semibold rounded-xl text-white bg-gradient-to-r from-slate-700 to-teal-600 hover:from-slate-800 hover:to-teal-700 focus:outline-none focus:ring-4 focus:ring-teal-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-[1.02] mt-8"
+                  disabled={isLoading || blockedInfo.isBlocked}
+                  className={`group relative w-full flex justify-center items-center py-4 px-6 border border-transparent text-base font-semibold rounded-xl text-white transition-all duration-300 shadow-lg mt-8 ${
+                    isLoading || blockedInfo.isBlocked
+                      ? "bg-slate-400 cursor-not-allowed opacity-50"
+                      : "bg-gradient-to-r from-slate-700 to-teal-600 hover:from-slate-800 hover:to-teal-700 focus:outline-none focus:ring-4 focus:ring-teal-200 hover:shadow-xl transform hover:scale-[1.02]"
+                  }`}
                 >
                   {isLoading ? (
                     <>
@@ -347,6 +623,13 @@ export default function Login() {
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
                       Connexion en cours...
+                    </>
+                  ) : blockedInfo.isBlocked ? (
+                    <>
+                      <svg className="mr-3 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H9m3-7V6m0 0V4m0 2h2m-2 0H9" />
+                      </svg>
+                      Accès bloqué
                     </>
                   ) : (
                     <>
@@ -358,6 +641,21 @@ export default function Login() {
                   )}
                 </button>
               </Form>
+
+              {/* Informations de sécurité */}
+              <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                <h4 className="text-sm font-semibold text-slate-700 mb-2 flex items-center">
+                  <svg className="mr-2 h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.18-4.18a1 1 0 00-1.414 0l-5.89 5.89A2 2 0 0010 14h-4a2 2 0 01-2-2v-4a2 2 0 012-2h4a2 2 0 001.414.586l5.89-5.89a1 1 0 000-1.414z" />
+                  </svg>
+                  Politique de sécurité
+                </h4>
+                <ul className="text-xs text-slate-600 space-y-1">
+                  <li>• 2 tentatives échouées : avertissement</li>
+                  <li>• 3 tentatives échouées : blocage de 5 minutes</li>
+                  <li>• 4+ tentatives échouées : blocage de 4 heures</li>
+                </ul>
+              </div>
 
               {/* Liens du bas */}
               <div className="text-center space-y-4 pt-8 border-t border-slate-100 mt-8">
