@@ -49,6 +49,12 @@ export function getAdminNavigation(currentPath: string) {
       current: currentPath.startsWith("/admin/program/enrollments"),
     },
     {
+      name: "Rapports",
+      href: "/admin/reports",
+      icon: BarChart3,
+      current: currentPath.startsWith("/admin/reports"),
+    },
+    {
       name: "Appels",
       href: "/admin/calls",
       icon: Calendar,
@@ -59,12 +65,6 @@ export function getAdminNavigation(currentPath: string) {
       href: "/messages",
       icon: MessageCircle,
       current: currentPath.startsWith("/messages"),
-    },
-    {
-      name: "Rapports",
-      href: "/admin/reports",
-      icon: BarChart3,
-      current: currentPath.startsWith("/admin/reports"),
     },
     {
       name: "Paramètres",

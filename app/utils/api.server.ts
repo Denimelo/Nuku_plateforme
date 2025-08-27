@@ -1171,18 +1171,170 @@ export const assignmentsServerAPI = {
   },
 };
 
-// ========== REPORTS API SERVER ==========
+// ========== SETTINGS API SERVER ==========
+export const settingsServerAPI = {
+  // Récupérer les paramètres système
+  getSystemSettings: async (token: string) => {
+    return apiCall('/admin/settings/system', { token });
+  },
+
+  // Mettre à jour les paramètres système
+  updateSystemSettings: async (token: string, settings: any) => {
+    return apiCall('/admin/settings/system', {
+      method: 'PUT',
+      body: settings,
+      token,
+    });
+  },
+
+  // Récupérer les paramètres de plateforme
+  getPlatformSettings: async (token: string) => {
+    return apiCall('/admin/settings/platform', { token });
+  },
+
+  // Mettre à jour les paramètres de plateforme
+  updatePlatformSettings: async (token: string, settings: any) => {
+    return apiCall('/admin/settings/platform', {
+      method: 'PUT',
+      body: settings,
+      token,
+    });
+  },
+
+  // Récupérer les paramètres d'email
+  getEmailSettings: async (token: string) => {
+    return apiCall('/admin/settings/email', { token });
+  },
+
+  // Mettre à jour les paramètres d'email
+  updateEmailSettings: async (token: string, settings: any) => {
+    return apiCall('/admin/settings/email', {
+      method: 'PUT',
+      body: settings,
+      token,
+    });
+  },
+
+  // Tester la configuration email
+  testEmailConfiguration: async (token: string, testEmail: string) => {
+    return apiCall('/admin/settings/email/test', {
+      method: 'POST',
+      body: { test_email: testEmail },
+      token,
+    });
+  },
+
+  // Récupérer les logs système
+  getSystemLogs: async (token: string, level?: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (level) params.append('level', level);
+    if (limit) params.append('limit', limit.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    
+    return apiCall(`/admin/settings/logs${query}`, { token });
+  },
+
+  // Backup de la base de données
+  createBackup: async (token: string) => {
+    return apiCall('/admin/settings/backup', {
+      method: 'POST',
+      token,
+    });
+  },
+
+  // Récupérer les statistiques de stockage
+  getStorageStats: async (token: string) => {
+    return apiCall('/admin/settings/storage/stats', { token });
+  },
+
+  // Nettoyer le cache
+  clearCache: async (token: string, cacheType?: string) => {
+    const params = cacheType ? `?cache_type=${cacheType}` : '';
+    return apiCall(`/admin/settings/cache/clear${params}`, {
+      method: 'POST',
+      token,
+    });
+  },
+};
+
+// Mise à jour de l'export existant reportsServerAPI pour inclure les nouvelles routes
 export const reportsServerAPI = {
-  getUserActivity: async (token: string, userId?: string) => {
-    const endpoint = userId ? `/reports/users/${userId}/activity` : '/reports/my-activity';
-    return apiCall(endpoint, { token });
+  // Métriques de la plateforme
+  getPlatformMetrics: async (token: string, startDate?: string, endDate?: string) => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    
+    return apiCall(`/admin/reports/platform-metrics${query}`, { token });
   },
 
+  // Activité des utilisateurs
+  getUserActivity: async (token: string, userId?: string, startDate?: string, endDate?: string) => {
+    const params = new URLSearchParams();
+    if (userId) params.append('user_id', userId);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    
+    return apiCall(`/admin/reports/user-activity${query}`, { token });
+  },
+
+  // Statistiques par programme
   getProgramStats: async (token: string, programId: string) => {
-    return apiCall(`/reports/programs/${programId}/stats`, { token });
+    return apiCall(`/admin/reports/programs/${programId}/stats`, { token });
   },
 
-  getPlatformMetrics: async (token: string) => {
-    return apiCall('/reports/platform-metrics', { token });
+  // Export de rapport
+  exportReport: async (token: string, reportType: string, format: string, startDate?: string, endDate?: string) => {
+    const formData = new FormData();
+    formData.append('report_type', reportType);
+    formData.append('format', format);
+    if (startDate) formData.append('start_date', startDate);
+    if (endDate) formData.append('end_date', endDate);
+
+    const response = await fetch(`${API_BASE_URL}/admin/reports/export`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Export failed: ${response.statusText}`);
+    }
+
+    return response.blob();
+  },
+};
+
+// ========== MENTORING API SERVER ==========
+export const mentoringServerAPI = {
+  // Assigner mentor à entrepreneur
+  assignMentor: async (token: string, expertId: string, entrepreneurId: string) => {
+    return apiCall('/admin/mentoring/assign', {
+      method: 'POST',
+      body: { expert_id: expertId, entrepreneur_id: entrepreneurId },
+      token,
+    });
+  },
+
+  // Terminer relation de mentorat
+  completeMentoring: async (token: string, mentoringId: string) => {
+    return apiCall(`/admin/mentoring/${mentoringId}/complete`, {
+      method: 'PUT',
+      token,
+    });
+  },
+
+  // Statistiques de mentorat
+  getStats: async (token: string) => {
+    return apiCall('/admin/mentoring/stats', { token });
+  },
+
+  // Liste des mentorés d'un expert
+  getExpertMentees: async (token: string, expertId: string) => {
+    return apiCall(`/admin/mentoring/expert/${expertId}/mentees`, { token });
   },
 };

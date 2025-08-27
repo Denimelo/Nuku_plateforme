@@ -11,7 +11,7 @@ export function ExpertsCard() {
       </p>
       <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4">
         <a
-          href="/expert"
+          href="/experts"
           className="bg-[#0B2749] text-white px-6 py-3 rounded-md font-medium hover:bg-[#0a2240] transition-all duration-300 text-center text-sm transform hover:scale-105"
         >
           Explorer l'espace expert
